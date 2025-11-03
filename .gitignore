@@ -1,0 +1,49 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Claude Code - Generated/Runtime files
+debug/
+file-history/
+history.jsonl
+todos/
+session-env/
+shell-snapshots/
+statsig/
+bash-command-log.txt
+eslint_errors.json
+*.lock
+
+# Claude Code - Local overrides
+settings.local.json
+.local/
+
+# Sensitive files
+*.key
+*.pem
+*.crt
+*.cert
+secrets/
+credentials/
+.env*
+
+# Logs
+*.log
+audio_debug.log
+
+# IDE
+ide/
+
+# Local plugins/projects
+plugins/
+projects/
+local/
+
+# Output styles (can be added later if needed)
+output-styles/
+
+# Backup files
+*.backup
+*copy/
+*copy */
