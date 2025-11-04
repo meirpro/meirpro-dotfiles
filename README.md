@@ -1,55 +1,74 @@
-# Claude Code Configuration
+# Shell & Claude Code Configuration
 
-My personal Claude Code configuration including hooks, commands, agents, and custom status line.
+My personal development environment configuration including Claude Code customizations and shell enhancements.
 
 ## 📁 Repository Structure
 
 ```
-claude-code-config/
-├── agents/              # Custom Claude Code agents
-│   ├── code-documentation-enhancer.md
-│   ├── code-metrics-analyzer.md
-│   ├── code-quality-auditor.md
-│   ├── code-refactoring-specialist.md
-│   ├── code-style-enforcer.md
-│   ├── documentation-generator.md
-│   ├── error-handling-specialist.md
-│   ├── image-cataloger.md
-│   ├── jewish-figure-researcher.md
-│   ├── performance-optimizer.md
-│   └── unit-test-generator.md
-├── audio/               # Notification sounds
-│   ├── awaiting_instructions.mp3
-│   ├── build_complete.mp3
-│   ├── error_fixed.mp3
-│   ├── ready.mp3
-│   └── task_complete.mp3
-├── commands/            # Slash commands
-│   ├── commit-emoji.md
-│   └── commit.md
-├── hooks/               # Event hooks
-│   ├── debug_hook.py
-│   ├── format_code.sh
-│   ├── log_bash.sh
-│   ├── log_pre_tool_use.py
-│   ├── macos_notification.py
-│   ├── on_notification.sh
-│   ├── play_audio.py
-│   ├── ts_check.py
-│   ├── ts_check.sh
-│   ├── ts_lint.py
-│   └── ts_lint.sh
-├── CLAUDE.md            # Global instructions for Claude
-├── claude.json          # MCP server configuration
-├── settings.json        # Main Claude Code settings
-├── statusline-command.sh # Custom status line script
+shell-config/
+├── claude/              # Claude Code specific config
+│   ├── agents/          # Custom Claude Code agents (12 specialized agents)
+│   ├── audio/           # Notification sounds
+│   ├── commands/        # Slash commands
+│   ├── hooks/           # Event hooks (TypeScript checks, linting, etc.)
+│   ├── claude.json      # MCP server configuration
+│   ├── CLAUDE.md        # Global instructions for Claude
+│   ├── settings.json    # Main Claude Code settings
+│   └── statusline-command.sh  # Custom status line script
+├── shell/               # Shell configuration
+│   ├── aliases.sh       # Command aliases
+│   └── functions.sh     # Shell functions (includes smart cld)
 ├── install.sh           # Installation script
 └── README.md            # This file
 ```
 
 ## ✨ Features
 
-### Custom Status Line
+### Shell Enhancements
+
+#### Smart `cld` Function
+Enhanced Claude Code launcher with intelligent session resume:
+
+```bash
+# Normal usage (same as 'claude' command)
+cld "help me with this code"
+
+# Resume with partial session ID (auto-completes to full UUID)
+cld -r 5c56e09f
+
+# Interactive session picker
+cld -r
+
+# Resume and add new query
+cld -r 5c56e09f "continue working on that feature"
+
+# Continue most recent session
+cld --continue
+```
+
+**How it works:**
+- Searches your current project's session directory for matching UUIDs
+- Auto-completes if only one match is found
+- Shows multiple matches if the partial ID is ambiguous
+- Skips agent session files for cleaner results
+
+#### Custom Aliases
+Shortcuts for common commands (from `shell/aliases.sh`):
+- Navigation helpers: `..`, `...`, `....`
+- Directory shortcuts: `d` (Documents), `dl` (Downloads), `dt` (Desktop)
+- Git shorthand: `g` for `git`
+- And many more...
+
+#### Custom Functions
+Useful shell functions (from `shell/functions.sh`):
+- `mkd` - Create directory and cd into it
+- `tre` - Enhanced tree view with colors
+- `cld` - Smart Claude Code launcher (described above)
+- Plus many more utilities...
+
+### Claude Code Customizations
+
+#### Custom Status Line
 Displays comprehensive session information:
 - 📁 Current directory and git branch
 - 🔑 Session ID (8-char short)
@@ -59,18 +78,32 @@ Displays comprehensive session information:
 
 Example: `SweetRoboTeam on main (Sonnet 4.5) 🔑 40d7da24 💰$0.59 📝 +107/-26 ⏱️ 10h29m (API: 15m22s)`
 
-### Hooks
+#### Hooks
 - **PostToolUse**: Automatic TypeScript checking and linting after file edits
 - **PreToolUse**: Bash command logging
 - **Notification**: Audio notifications for task completion
 - **Code Formatting**: Automatic code formatting on file changes
 
-### Slash Commands
+#### Slash Commands
 - `/commit-emoji` - Creates well-formatted commits with conventional commit messages and emoji
 - `/commit` - Standard commit with conventional format
 
-### Agents
-Specialized agents for code quality, documentation, refactoring, performance optimization, and more.
+#### Agents
+12 specialized agents for:
+- Code quality auditing
+- Documentation generation
+- Refactoring assistance
+- Performance optimization
+- Error handling improvements
+- Unit test generation
+- Code metrics analysis
+- And more...
+
+#### MCP Servers
+Pre-configured MCP servers:
+- **Playwright** - Browser automation
+- **Neon** - Database management
+- **Context7** - Documentation lookup
 
 ## 🚀 Installation
 
@@ -85,41 +118,86 @@ Specialized agents for code quality, documentation, refactoring, performance opt
 ```bash
 # Clone the repository
 cd ~/Documents/GitHub
-git clone https://github.com/YOUR_USERNAME/claude-code-config.git
+git clone https://github.com/YOUR_USERNAME/shell-config.git
+cd shell-config
 
 # Run the install script
-cd claude-code-config
 chmod +x install.sh
 ./install.sh
 ```
 
-The install script will:
-1. Backup your existing `~/.claude` configuration
-2. Create symlinks from `~/.claude` to this repository
-3. Preserve local-only files (settings.local.json, history, etc.)
+The install script will prompt you to choose:
+1. **Claude Code configuration only** - Just Claude Code enhancements
+2. **Shell configuration only** - Just aliases and functions
+3. **Both (recommended)** - Complete development environment
+
+The installer will:
+- Backup existing configurations
+- Create symlinks from `~/.claude` and home directory to this repository
+- Update your shell RC file to source aliases and functions
+- Make scripts executable
+- Check for required dependencies
+
+### What Gets Installed
+
+**Claude Code (Option 1 or 3):**
+- Symlinks from `~/.claude/` to `claude/` directory
+- Preserves local-only files (history, todos, etc.)
+
+**Shell Config (Option 2 or 3):**
+- Symlinks `~/.aliases` to `shell/aliases.sh`
+- Symlinks `~/.functions` to `shell/functions.sh`
+- Updates `~/.bash_profile` or `~/.zshrc` to source these files
 
 ### Manual Install
 
 If you prefer manual installation:
 
+**For Claude Code:**
 ```bash
 # Backup existing config
 cp -r ~/.claude ~/.claude.backup
 
-# Create symlinks for each directory/file
-ln -sf ~/Documents/GitHub/claude-code-config/hooks ~/.claude/hooks
-ln -sf ~/Documents/GitHub/claude-code-config/commands ~/.claude/commands
-ln -sf ~/Documents/GitHub/claude-code-config/agents ~/.claude/agents
-ln -sf ~/Documents/GitHub/claude-code-config/audio ~/.claude/audio
-ln -sf ~/Documents/GitHub/claude-code-config/settings.json ~/.claude/settings.json
-ln -sf ~/Documents/GitHub/claude-code-config/CLAUDE.md ~/.claude/CLAUDE.md
-ln -sf ~/Documents/GitHub/claude-code-config/statusline-command.sh ~/.claude/statusline-command.sh
-ln -sf ~/Documents/GitHub/claude-code-config/claude.json ~/.claude/claude.json
+# Create symlinks
+ln -sf ~/Documents/GitHub/shell-config/claude/hooks ~/.claude/hooks
+ln -sf ~/Documents/GitHub/shell-config/claude/commands ~/.claude/commands
+ln -sf ~/Documents/GitHub/shell-config/claude/agents ~/.claude/agents
+ln -sf ~/Documents/GitHub/shell-config/claude/audio ~/.claude/audio
+ln -sf ~/Documents/GitHub/shell-config/claude/settings.json ~/.claude/settings.json
+ln -sf ~/Documents/GitHub/shell-config/claude/CLAUDE.md ~/.claude/CLAUDE.md
+ln -sf ~/Documents/GitHub/shell-config/claude/statusline-command.sh ~/.claude/statusline-command.sh
+ln -sf ~/Documents/GitHub/shell-config/claude/claude.json ~/.claude/claude.json
+```
+
+**For Shell Config:**
+```bash
+# Create symlinks
+ln -sf ~/Documents/GitHub/shell-config/shell/aliases.sh ~/.aliases
+ln -sf ~/Documents/GitHub/shell-config/shell/functions.sh ~/.functions
+
+# Add to ~/.bash_profile or ~/.zshrc
+echo '[ -r ~/.aliases ] && source ~/.aliases' >> ~/.bash_profile
+echo '[ -r ~/.functions ] && source ~/.functions' >> ~/.bash_profile
+
+# Reload shell
+source ~/.bash_profile
 ```
 
 ## 🔧 Configuration
 
-### Status Line
+### Shell Functions
+
+The `cld` function automatically finds sessions by partial ID. How it works:
+
+1. Takes a partial session ID (e.g., `5c56e09f`)
+2. Searches in `~/.claude/projects/<current-project>/`
+3. Finds files matching `5c56e09f*.jsonl`
+4. Auto-resumes if exactly one match is found
+5. Shows matches if multiple sessions match
+6. Falls back to Claude's native behavior if no matches
+
+### Claude Code Status Line
+
 The status line script (`statusline-command.sh`) is configured in `settings.json`:
 
 ```json
@@ -131,32 +209,63 @@ The status line script (`statusline-command.sh`) is configured in `settings.json
 }
 ```
 
-### Hooks
-Hooks are configured to run on specific events:
-- **PostToolUse** (Write|Edit|MultiEdit): TypeScript check, lint, format
-- **PreToolUse** (Bash): Command logging
-- **Notification**: Audio playback
+### Customizing Hooks
 
-### MCP Servers
-MCP servers are configured in `claude.json`. Currently includes:
-- Playwright (browser automation)
-- Neon (database management)
-- Context7 (documentation lookup)
+Hooks are configured to run on specific events. Edit `claude/settings.json` to add or modify hooks:
+
+```json
+{
+  "hooks": {
+    "postToolUse": [
+      {
+        "tools": ["Write", "Edit", "MultiEdit"],
+        "command": "bash ~/.claude/hooks/ts_check.sh"
+      }
+    ]
+  }
+}
+```
 
 ## 📝 Customization
 
-### Adding Your Own Hooks
-1. Create a new script in `hooks/`
-2. Make it executable: `chmod +x hooks/your-hook.sh`
-3. Add to `settings.json` under the appropriate hook event
+### Adding Your Own Shell Functions
 
-### Adding Custom Commands
-1. Create a markdown file in `commands/`
+Edit `shell/functions.sh` in the repo:
+
+```bash
+# Your custom function
+function myfunction() {
+    echo "Hello from my custom function!"
+}
+```
+
+Changes are immediately available after sourcing: `source ~/.functions`
+
+Since it's symlinked, your changes are automatically version controlled!
+
+### Adding Your Own Aliases
+
+Edit `shell/aliases.sh` in the repo:
+
+```bash
+alias myalias="echo 'My custom alias'"
+```
+
+### Adding Claude Code Hooks
+
+1. Create a new script in `claude/hooks/`
+2. Make it executable: `chmod +x claude/hooks/your-hook.sh`
+3. Add to `claude/settings.json` under the appropriate hook event
+
+### Adding Custom Slash Commands
+
+1. Create a markdown file in `claude/commands/`
 2. Write your command prompt in the markdown
 3. Use with `/your-command-name`
 
 ### Adding Custom Agents
-1. Create a markdown file in `agents/`
+
+1. Create a markdown file in `claude/agents/`
 2. Define the agent's capabilities and instructions
 3. Claude Code will automatically discover it
 
@@ -166,14 +275,62 @@ MCP servers are configured in `claude.json`. Currently includes:
 - Sensitive directories (`.env*`, `secrets/`, etc.) are excluded
 - API keys and tokens should never be committed
 - The `.gitignore` file protects common sensitive patterns
+- Shell config files are symlinked, so edits are version controlled
 
 ## 🛠️ Dependencies
 
-The hooks and status line require:
+**Required:**
 - **jq**: JSON parsing (`brew install jq`)
 - **bc**: Mathematical calculations (pre-installed on macOS)
 - **git**: Version control (pre-installed on macOS)
 - **Python 3**: For Python-based hooks (pre-installed on macOS)
+
+The install script will check for these and warn if any are missing.
+
+## 💡 Tips & Tricks
+
+### Session Management with `cld`
+
+```bash
+# List recent sessions in current project
+ls -lt ~/.claude/projects/-$(pwd | sed 's/\//-/g')/*.jsonl | head -5
+
+# Resume most recent
+cld --continue
+
+# Resume with partial ID (just first 8 chars of UUID)
+cld -r 5c56e09f
+```
+
+### Editing Config While Maintaining Version Control
+
+Since files are symlinked, you can edit them in either location:
+
+```bash
+# Edit in home directory (changes reflected in repo)
+vim ~/.functions
+
+# Or edit in repo (changes reflected in home)
+vim ~/Documents/GitHub/shell-config/shell/functions.sh
+```
+
+Both edit the same file! Commit your changes from the repo directory.
+
+### Local-Only Overrides
+
+For settings you don't want to commit:
+
+**Claude Code:**
+```bash
+# Create local settings file (gitignored)
+vim ~/.claude/settings.local.json
+```
+
+**Shell:**
+```bash
+# Use ~/.extra for local shell config (if your bash_profile sources it)
+vim ~/.extra
+```
 
 ## 📚 Learn More
 
@@ -182,10 +339,25 @@ The hooks and status line require:
 - [Hooks Documentation](https://docs.claude.com/en/docs/claude-code/hooks.md)
 - [MCP Servers](https://docs.claude.com/en/docs/claude-code/mcp-servers.md)
 
+## 🎯 Project Philosophy
+
+This repo aims to:
+- **Keep configs in version control** - Never lose your perfect setup again
+- **Make switching machines easy** - Clone and install on any new machine
+- **Stay organized** - Separate Claude Code and shell configs logically
+- **Remain flexible** - Easy to customize and extend
+
 ## 📄 License
 
 MIT License - Feel free to use and modify for your own needs!
 
 ## 🤝 Contributing
 
-This is a personal configuration repository, but feel free to fork and adapt for your own use!
+This is a personal configuration repository, but feel free to:
+- Fork and adapt for your own use
+- Submit issues for bugs or suggestions
+- Share your own customizations!
+
+---
+
+**Made with ❤️ by a developer who got tired of losing shell configurations**
