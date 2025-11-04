@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Template version - customize for your machine
+
+# Load .bash_profile for interactive shells
+[ -n "$PS1" ] && source ~/.bash_profile;
+
+# Homebrew (if installed)
+if which brew &> /dev/null; then
+	eval "$(/opt/homebrew/bin/brew shellenv)"
+fi;
+
+# Telemetry opt-outs
+export DOTNET_CLI_TELEMETRY_OPTOUT=1
+
+# Machine-specific additions:
+# NVM (Node Version Manager) - uncomment if installed
+# export NVM_DIR="$HOME/.nvm"
+# [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+# [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# Add other tool-specific configurations here or in ~/.extra

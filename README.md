@@ -15,11 +15,32 @@ meirpro-dotfiles/
 │   ├── CLAUDE.md        # Global instructions for Claude
 │   ├── settings.json    # Main Claude Code settings
 │   └── statusline-command.sh  # Custom status line script
-├── shell/               # Shell configuration
-│   ├── aliases.sh       # Command aliases
-│   └── functions.sh     # Shell functions (includes smart cld)
+├── shell/               # Shell configuration (universal configs + templates)
+│   ├── .aliases         # Command aliases (extensive collection)
+│   ├── .functions       # Shell functions (includes smart cld for Claude Code)
+│   ├── .exports         # Environment variables and settings
+│   ├── .bash_prompt     # Solarized Dark prompt with git status
+│   ├── .zshrc           # Zsh runtime config
+│   ├── .zprofile        # Zsh profile config
+│   ├── .bash_profile.template  # Template (customize for your machine)
+│   └── .bashrc.template        # Template (customize for your machine)
+├── git/                 # Git configurations
+│   ├── .gitconfig.template     # Git aliases and settings (customize user info)
+│   ├── .gitignore_global       # Global gitignore patterns
+│   └── .gitattributes          # Git attributes
+├── editors/             # Editor configurations
+│   ├── .vimrc           # Vim config (Solarized Dark theme)
+│   ├── .gvimrc          # Gvim config
+│   ├── .inputrc         # Readline config (better tab completion)
+│   └── .editorconfig    # Cross-editor settings
+├── tools/               # Tool configurations
+│   ├── .tmux.conf       # Tmux config (Ctrl+A prefix, vim keys)
+│   ├── .screenrc        # GNU Screen config
+│   ├── .wgetrc          # Wget defaults
+│   └── .curlrc          # Curl defaults
 ├── install.sh           # Installation script
-└── README.md            # This file
+├── README.md            # This file
+└── SETUP.md             # Machine-specific setup guide
 ```
 
 ## ✨ Features
@@ -52,19 +73,42 @@ cld --continue
 - Shows multiple matches if the partial ID is ambiguous
 - Skips agent session files for cleaner results
 
-#### Custom Aliases
-Shortcuts for common commands (from `shell/aliases.sh`):
-- Navigation helpers: `..`, `...`, `....`
-- Directory shortcuts: `d` (Documents), `dl` (Downloads), `dt` (Desktop)
-- Git shorthand: `g` for `git`
-- And many more...
+#### Shell Dotfiles (Based on Mathias Bynens' dotfiles)
+Comprehensive collection of universal shell configurations:
 
-#### Custom Functions
-Useful shell functions (from `shell/functions.sh`):
+**From `.aliases` (6.5KB of shortcuts):**
+- Navigation: `..`, `...`, `....`, `.....`
+- Directory shortcuts: `d`, `dl`, `dt`, `p`, `g`
+- Colorized `ls` variants with custom colors
+- macOS utilities: flush DNS, cleanup LaunchServices
+- Network tools: `ip`, `localip`, `ifactive`
+- HTTP shortcuts: `GET`, `POST`, `PUT`, `DELETE` as curl aliases
+- System utilities: `update`, `emptytrash`, `show`/`hide` hidden files
+
+**From `.functions` (6.6KB of utilities):**
 - `mkd` - Create directory and cd into it
-- `tre` - Enhanced tree view with colors
-- `cld` - Smart Claude Code launcher (described above)
-- Plus many more utilities...
+- `cdf` - cd to Finder's current location
+- `targz` - Smart tar.gz with compression optimization
+- `diff` - Git-colored diff
+- `server` - Python HTTP server
+- `getcertnames` - SSL certificate inspection
+- `tre` - Enhanced tree with colors
+- `cld` - Smart Claude Code launcher with resume support
+- Plus many more utilities for development...
+
+**From `.exports`:**
+- Editor: vim
+- Node.js REPL: 32,768 entry history
+- Bash history: 32,768 entries (vs default 500)
+- Locale: en_US.UTF-8
+- Python UTF-8 encoding
+- GPG TTY configuration
+
+**From `.bash_prompt` (Solarized Dark):**
+- Beautiful prompt with git branch/status
+- SSH detection (red hostname)
+- Root user detection (red username)
+- Git indicators: `+` staged, `!` unstaged, `?` untracked, `$` stashed
 
 ### Claude Code Customizations
 
@@ -105,6 +149,15 @@ Pre-configured MCP servers:
 - **Neon** - Database management
 - **Context7** - Documentation lookup
 
+## 🎨 Attribution
+
+The shell dotfiles in this repository are based on and inspired by:
+- **[Mathias Bynens' dotfiles](https://github.com/mathiasbynens/dotfiles)** - Primary source for shell configurations, aliases, and functions
+- **[Nicolas Gallagher's dotfiles](https://github.com/necolas/dotfiles)** - Bash prompt with git integration
+- **[Paul Irish's dotfiles](https://github.com/paulirish/dotfiles)** - Additional shell wisdom
+
+Custom additions include Claude Code integration (`cld` function) and personal preferences.
+
 ## 🚀 Installation
 
 ### Prerequisites
@@ -128,13 +181,14 @@ chmod +x install.sh
 
 The install script will prompt you to choose:
 1. **Claude Code configuration only** - Just Claude Code enhancements
-2. **Shell configuration only** - Just aliases and functions
+2. **Shell configuration only** - Aliases, functions, exports, prompts, and tool configs
 3. **Both (recommended)** - Complete development environment
 
 The installer will:
 - Backup existing configurations
 - Create symlinks from `~/.claude` and home directory to this repository
-- Update your shell RC file to source aliases and functions
+- Copy template files (`.bash_profile`, `.bashrc`, `.gitconfig`) for customization
+- Update your shell RC file to source dotfiles
 - Make scripts executable
 - Check for required dependencies
 
@@ -145,9 +199,22 @@ The installer will:
 - Preserves local-only files (history, todos, etc.)
 
 **Shell Config (Option 2 or 3):**
-- Symlinks `~/.aliases` to `shell/aliases.sh`
-- Symlinks `~/.functions` to `shell/functions.sh`
-- Updates `~/.bash_profile` or `~/.zshrc` to source these files
+- Symlinks universal dotfiles:
+  - `~/.aliases` → `shell/.aliases`
+  - `~/.functions` → `shell/.functions`
+  - `~/.exports` → `shell/.exports`
+  - `~/.bash_prompt` → `shell/.bash_prompt`
+  - `~/.zshrc` → `shell/.zshrc`
+  - `~/.zprofile` → `shell/.zprofile`
+  - `~/.vimrc` → `editors/.vimrc`
+  - `~/.inputrc` → `editors/.inputrc`
+  - `~/.tmux.conf` → `tools/.tmux.conf`
+  - And more...
+- Copies template files for customization:
+  - `~/.bash_profile` (from `.bash_profile.template`)
+  - `~/.bashrc` (from `.bashrc.template`)
+  - `~/.gitconfig` (from `.gitconfig.template`)
+- Updates your shell RC file to source dotfiles
 
 ### Manual Install
 
