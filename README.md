@@ -5,7 +5,7 @@ My personal development environment configuration including Claude Code customiz
 ## 📁 Repository Structure
 
 ```
-shell-config/
+meirpro-dotfiles/
 ├── claude/              # Claude Code specific config
 │   ├── agents/          # Custom Claude Code agents (12 specialized agents)
 │   ├── audio/           # Notification sounds
@@ -118,8 +118,8 @@ Pre-configured MCP servers:
 ```bash
 # Clone the repository
 cd ~/Documents/GitHub
-git clone https://github.com/YOUR_USERNAME/shell-config.git
-cd shell-config
+git clone https://github.com/YOUR_USERNAME/meirpro-dotfiles.git
+cd meirpro-dotfiles
 
 # Run the install script
 chmod +x install.sh
@@ -159,21 +159,21 @@ If you prefer manual installation:
 cp -r ~/.claude ~/.claude.backup
 
 # Create symlinks
-ln -sf ~/Documents/GitHub/shell-config/claude/hooks ~/.claude/hooks
-ln -sf ~/Documents/GitHub/shell-config/claude/commands ~/.claude/commands
-ln -sf ~/Documents/GitHub/shell-config/claude/agents ~/.claude/agents
-ln -sf ~/Documents/GitHub/shell-config/claude/audio ~/.claude/audio
-ln -sf ~/Documents/GitHub/shell-config/claude/settings.json ~/.claude/settings.json
-ln -sf ~/Documents/GitHub/shell-config/claude/CLAUDE.md ~/.claude/CLAUDE.md
-ln -sf ~/Documents/GitHub/shell-config/claude/statusline-command.sh ~/.claude/statusline-command.sh
-ln -sf ~/Documents/GitHub/shell-config/claude/claude.json ~/.claude/claude.json
+ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/hooks ~/.claude/hooks
+ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/commands ~/.claude/commands
+ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/agents ~/.claude/agents
+ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/audio ~/.claude/audio
+ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/settings.json ~/.claude/settings.json
+ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/CLAUDE.md ~/.claude/CLAUDE.md
+ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/statusline-command.sh ~/.claude/statusline-command.sh
+ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/claude.json ~/.claude/claude.json
 ```
 
 **For Shell Config:**
 ```bash
 # Create symlinks
-ln -sf ~/Documents/GitHub/shell-config/shell/aliases.sh ~/.aliases
-ln -sf ~/Documents/GitHub/shell-config/shell/functions.sh ~/.functions
+ln -sf ~/Documents/GitHub/meirpro-dotfiles/shell/aliases.sh ~/.aliases
+ln -sf ~/Documents/GitHub/meirpro-dotfiles/shell/functions.sh ~/.functions
 
 # Add to ~/.bash_profile or ~/.zshrc
 echo '[ -r ~/.aliases ] && source ~/.aliases' >> ~/.bash_profile
@@ -311,7 +311,7 @@ Since files are symlinked, you can edit them in either location:
 vim ~/.functions
 
 # Or edit in repo (changes reflected in home)
-vim ~/Documents/GitHub/shell-config/shell/functions.sh
+vim ~/Documents/GitHub/meirpro-dotfiles/shell/functions.sh
 ```
 
 Both edit the same file! Commit your changes from the repo directory.
