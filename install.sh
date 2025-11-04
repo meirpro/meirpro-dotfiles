@@ -58,7 +58,7 @@ check_shell_config() {
 # Ask what to install
 echo -e "${BLUE}What would you like to install?${NC}"
 echo "  1) Claude Code configuration only"
-echo "  2) Shell configuration only (aliases, functions)"
+echo "  2) Shell configuration only (dotfiles, aliases, functions, git, vim, tools)"
 echo "  3) Both (recommended)"
 echo
 read -p "Select option (1-3): " -n 1 -r
@@ -163,9 +163,68 @@ if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
     echo
 
     # Create symlinks for shell configs
-    echo -e "${YELLOW}Creating symlinks for shell configuration...${NC}"
-    create_symlink "$REPO_DIR/shell/aliases.sh" "$HOME/.aliases" ".aliases"
-    create_symlink "$REPO_DIR/shell/functions.sh" "$HOME/.functions" ".functions"
+    echo -e "${YELLOW}Creating symlinks for shell dotfiles...${NC}"
+    create_symlink "$REPO_DIR/shell/.aliases" "$HOME/.aliases" ".aliases"
+    create_symlink "$REPO_DIR/shell/.functions" "$HOME/.functions" ".functions"
+    create_symlink "$REPO_DIR/shell/.exports" "$HOME/.exports" ".exports"
+    create_symlink "$REPO_DIR/shell/.bash_prompt" "$HOME/.bash_prompt" ".bash_prompt"
+    create_symlink "$REPO_DIR/shell/.zshrc" "$HOME/.zshrc" ".zshrc"
+    create_symlink "$REPO_DIR/shell/.zprofile" "$HOME/.zprofile" ".zprofile"
+    echo
+
+    # Create symlinks for editor configs
+    echo -e "${YELLOW}Creating symlinks for editor configuration...${NC}"
+    create_symlink "$REPO_DIR/editors/.vimrc" "$HOME/.vimrc" ".vimrc"
+    create_symlink "$REPO_DIR/editors/.gvimrc" "$HOME/.gvimrc" ".gvimrc"
+    create_symlink "$REPO_DIR/editors/.inputrc" "$HOME/.inputrc" ".inputrc"
+    create_symlink "$REPO_DIR/editors/.editorconfig" "$HOME/.editorconfig" ".editorconfig"
+    echo
+
+    # Create symlinks for tool configs
+    echo -e "${YELLOW}Creating symlinks for tool configuration...${NC}"
+    create_symlink "$REPO_DIR/tools/.tmux.conf" "$HOME/.tmux.conf" ".tmux.conf"
+    create_symlink "$REPO_DIR/tools/.screenrc" "$HOME/.screenrc" ".screenrc"
+    create_symlink "$REPO_DIR/tools/.wgetrc" "$HOME/.wgetrc" ".wgetrc"
+    create_symlink "$REPO_DIR/tools/.curlrc" "$HOME/.curlrc" ".curlrc"
+    echo
+
+    # Create symlinks for git configs
+    echo -e "${YELLOW}Creating symlinks for git configuration...${NC}"
+    create_symlink "$REPO_DIR/git/.gitignore_global" "$HOME/.gitignore" ".gitignore (global)"
+    create_symlink "$REPO_DIR/git/.gitattributes" "$HOME/.gitattributes" ".gitattributes"
+    echo
+
+    # Copy template files (don't symlink these - user needs to customize)
+    echo -e "${YELLOW}Copying template files for customization...${NC}"
+
+    if [ ! -f "$HOME/.bash_profile" ]; then
+        cp "$REPO_DIR/shell/.bash_profile.template" "$HOME/.bash_profile"
+        echo -e "${GREEN}  ✓ Created .bash_profile (customize as needed)${NC}"
+    else
+        echo -e "${BLUE}  • .bash_profile exists (skipping, see .bash_profile.template)${NC}"
+    fi
+
+    if [ ! -f "$HOME/.bashrc" ]; then
+        cp "$REPO_DIR/shell/.bashrc.template" "$HOME/.bashrc"
+        echo -e "${GREEN}  ✓ Created .bashrc (customize as needed)${NC}"
+    else
+        echo -e "${BLUE}  • .bashrc exists (skipping, see .bashrc.template)${NC}"
+    fi
+
+    if [ ! -f "$HOME/.gitconfig" ]; then
+        cp "$REPO_DIR/git/.gitconfig.template" "$HOME/.gitconfig"
+        echo -e "${GREEN}  ✓ Created .gitconfig (ADD YOUR NAME & EMAIL!)${NC}"
+        echo -e "${YELLOW}    Run: git config --global user.name \"Your Name\"${NC}"
+        echo -e "${YELLOW}    Run: git config --global user.email \"your@email.com\"${NC}"
+    else
+        echo -e "${BLUE}  • .gitconfig exists (skipping, see .gitconfig.template)${NC}"
+    fi
+    echo
+
+    # Create vim directories
+    echo -e "${YELLOW}Creating vim directories...${NC}"
+    mkdir -p "$HOME/.vim/"{backups,swaps,undo,colors}
+    echo -e "${GREEN}  ✓ Created vim directories${NC}"
     echo
 
     # Detect shell and update config
@@ -226,17 +285,25 @@ if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
 fi
 
 if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
-    echo -e "${YELLOW}Shell features installed:${NC}"
-    echo "  • Enhanced cld function with smart session ID matching"
-    echo "  • Custom aliases and functions"
-    echo "  • Usage: cld -r 5c56e09f (resume with partial ID)"
+    echo -e "${YELLOW}Shell dotfiles installed (based on Mathias Bynens' dotfiles):${NC}"
+    echo "  • Comprehensive aliases (6.5KB) - navigation, git, network, HTTP shortcuts"
+    echo "  • Useful functions (6.6KB) - mkd, cdf, targz, diff, server, cld, etc."
+    echo "  • Environment exports - vim editor, large history, UTF-8 locale"
+    echo "  • Solarized Dark bash prompt with git status"
+    echo "  • Vim configuration with Solarized theme"
+    echo "  • Git configuration with extensive aliases"
+    echo "  • Tool configs - tmux, wget, curl, inputrc"
+    echo "  • Usage: cld -r 5c56e09f (resume Claude session with partial ID)"
     echo
 fi
 
 echo -e "${YELLOW}Next steps:${NC}"
 if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
-    echo "  1. Reload your shell: source $SHELL_RC"
-    echo "  2. Test shell functions: cld -r <partial-session-id>"
+    echo "  1. Reload your shell: source ~/.bash_profile (or source ~/.zshrc)"
+    echo "  2. Customize .gitconfig: git config --global user.name \"Your Name\""
+    echo "  3. Customize .gitconfig: git config --global user.email \"your@email.com\""
+    echo "  4. Review SETUP.md for installing tools (NVM, Homebrew packages, etc.)"
+    echo "  5. Test functions: try 'll', 'mkd test', 'cld -r <partial-id>'"
 fi
 if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
     echo "  • Restart Claude Code or start a new session"
@@ -244,10 +311,25 @@ if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
 fi
 echo
 
-echo -e "${YELLOW}Local settings:${NC}"
-if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
-    echo "  • Create ~/.claude/settings.local.json for local-only overrides"
+echo -e "${YELLOW}Important files to customize:${NC}"
+if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
+    echo "  • ~/.gitconfig - Add your name and email (REQUIRED)"
+    echo "  • ~/.bash_profile - Add machine-specific PATH additions"
+    echo "  • ~/.extra - Create for local settings you don't want to commit"
 fi
+if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
+    echo "  • ~/.claude/settings.local.json - Create for local Claude overrides"
+fi
+echo
+
+echo -e "${YELLOW}Attribution:${NC}"
+echo "  Shell dotfiles based on Mathias Bynens' dotfiles"
+echo "  https://github.com/mathiasbynens/dotfiles"
+echo
+
+echo -e "${YELLOW}Learn more:${NC}"
+echo "  • See README.md for full features and documentation"
+echo "  • See SETUP.md for tool installation guide"
 echo "  • All symlinked files can be edited in the repo for version control"
 echo
 
