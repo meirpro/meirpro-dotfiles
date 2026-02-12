@@ -15,6 +15,7 @@ alias dl="cd ~/Downloads"
 alias dt="cd ~/Desktop"
 alias p="cd ~/projects"
 alias g="git"
+alias gp="git push"
 # cld function moved to ~/.functions (supports -r flag for resume)
 
 # Detect which `ls` flavor is in use
