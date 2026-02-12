@@ -25,8 +25,31 @@ if [ ! -f "$file_path" ]; then
     exit 0
 fi
 
-# Run ESLint on the specific file
-eslint_output=$(timeout 30 npx eslint "$file_path" --format compact 2>&1)
+# Detect project root by walking up from the file to find the nearest
+# directory containing an ESLint config (eslintrc, eslint.config, etc.)
+project_root=""
+search_dir=$(dirname "$file_path")
+while [ "$search_dir" != "/" ]; do
+    for f in "$search_dir"/.eslintrc* "$search_dir"/eslint.config*; do
+        if [ -f "$f" ]; then
+            project_root="$search_dir"
+            break 2
+        fi
+    done
+    search_dir=$(dirname "$search_dir")
+done
+
+# If no project root found, skip linting
+if [ -z "$project_root" ]; then
+    exit 0
+fi
+
+# Convert absolute file path to relative path from project root
+# This ensures @typescript-eslint/parser resolves tsconfig.json from the project root
+relative_path="${file_path#"$project_root"/}"
+
+# Run ESLint from the correct project root using the relative path
+eslint_output=$(cd "$project_root" && timeout 30 npx eslint "$relative_path" --format compact 2>&1)
 eslint_exit_code=$?
 
 # If ESLint found errors
