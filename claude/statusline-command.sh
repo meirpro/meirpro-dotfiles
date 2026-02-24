@@ -19,36 +19,48 @@ total_api_duration_ms=$(echo "$input" | jq -r '.cost.total_api_duration_ms // 0'
 # Change to the current directory for git operations
 cd "$current_dir" 2>/dev/null || true
 
-# Git prompt function (simplified version of your bash_prompt)
+# Git prompt function — 2 git calls (status + stash), down from 6
 prompt_git() {
     local s=''
     local branchName=''
-    
-    # Check if the current directory is in a Git repository
-    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
-        return
+
+    # Single call: branch, ahead/behind, staged, unstaged, untracked
+    local status_output
+    status_output=$(git status -b --porcelain --ignore-submodules 2>/dev/null) || return
+
+    # Parse branch name from first line: ## branch...remote [ahead N, behind N]
+    local header="${status_output%%$'\n'*}"
+    branchName="${header#\#\# }"
+    branchName="${branchName%%...*}"
+    branchName="${branchName%% *}"
+    [ -z "$branchName" ] && branchName="(unknown)"
+
+    # Parse ahead/behind from header
+    case "$header" in
+        *\[ahead*behind*\]*) s+='⇡⇣' ;;
+        *\[ahead*\]*)        s+='⇡' ;;
+        *\[behind*\]*)       s+='⇣' ;;
+    esac
+
+    # Parse file statuses from remaining lines
+    local lines="${status_output#*$'\n'}"
+    if [ "$lines" != "$status_output" ]; then
+        case "$lines" in
+            *[MADRC][\ ]*) s+='+' ;;  # staged
+        esac
+        case "$lines" in
+            *\ [MD]*) s+='!' ;;  # unstaged
+        esac
+        case "$lines" in
+            *\?\?*) s+='?' ;;  # untracked
+        esac
     fi
-    
-    # Get branch name
-    branchName=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || \
-        git describe --all --exact-match HEAD 2>/dev/null || \
-        git rev-parse --short HEAD 2>/dev/null || \
-        echo '(unknown)')
-    
-    # Check for changes (skip git locks for status line)
-    if ! git diff --quiet --ignore-submodules --cached 2>/dev/null; then
-        s+='+'
-    fi
-    if ! git diff-files --quiet --ignore-submodules -- 2>/dev/null; then
-        s+='!'
-    fi
-    if [ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then
-        s+='?'
-    fi
+
+    # Stash check (no way to get from git status)
     if git rev-parse --verify refs/stash &>/dev/null 2>&1; then
         s+='$'
     fi
-    
+
     [ -n "${s}" ] && s=" [${s}]"
     echo " on ${branchName}${s}"
 }
