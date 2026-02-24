@@ -35,12 +35,16 @@ prompt_git() {
     branchName="${branchName%% *}"
     [ -z "$branchName" ] && branchName="(unknown)"
 
-    # Parse ahead/behind from header
-    case "$header" in
-        *\[ahead*behind*\]*) s+='⇡⇣' ;;
-        *\[ahead*\]*)        s+='⇡' ;;
-        *\[behind*\]*)       s+='⇣' ;;
-    esac
+    # Parse ahead/behind from header (e.g. [ahead 3, behind 1])
+    local ahead behind
+    if [[ "$header" =~ ahead\ ([0-9]+) ]]; then
+        ahead="${BASH_REMATCH[1]}"
+        s+="⇡${ahead}"
+    fi
+    if [[ "$header" =~ behind\ ([0-9]+) ]]; then
+        behind="${BASH_REMATCH[1]}"
+        s+="⇣${behind}"
+    fi
 
     # Parse file statuses from remaining lines
     local lines="${status_output#*$'\n'}"
