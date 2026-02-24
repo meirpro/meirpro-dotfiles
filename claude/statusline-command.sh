@@ -37,9 +37,9 @@ prompt_git() {
 
     # Parse ahead/behind from header
     case "$header" in
-        *\[ahead*behind*\]*) s+='⇡⇣' ;;
-        *\[ahead*\]*)        s+='⇡' ;;
-        *\[behind*\]*)       s+='⇣' ;;
+        *\[ahead*behind*\]*) s+='↑↓' ;;
+        *\[ahead*\]*)        s+='↑' ;;
+        *\[behind*\]*)       s+='↓' ;;
     esac
 
     # Parse file statuses from remaining lines
