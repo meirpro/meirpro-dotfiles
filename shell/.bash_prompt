@@ -3,7 +3,7 @@
 
 # Shell prompt based on the Solarized Dark theme.
 # Screenshot: http://i.imgur.com/EkEtphC.png
-# Heavily inspired by @necolas’s prompt: https://github.com/necolas/dotfiles
+# Heavily inspired by @necolas's prompt: https://github.com/necolas/dotfiles
 # iTerm → Profiles → Text → use 13pt Monaco with 1.1 vertical spacing.
 
 if [[ $COLORTERM = gnome-* && $TERM = xterm ]] && infocmp gnome-256color >/dev/null 2>&1; then
@@ -13,15 +13,15 @@ elif infocmp xterm-256color >/dev/null 2>&1; then
 fi;
 
 prompt_git() {
-	local s=’’;
-	local branchName=’’;
+	local s='';
+	local branchName='';
 
 	# Single git call: branch, ahead/behind, staged, unstaged, untracked
 	local status_output;
 	status_output="$(git status -b --porcelain --ignore-submodules 2>/dev/null)" || return;
 
 	# Parse branch name from header: ## branch...remote [ahead N, behind N]
-	local header="${status_output%%$’\n’*}";
+	local header="${status_output%%$'\n'*}";
 	branchName="${header#\#\# }";
 	branchName="${branchName%%...*}";
 	branchName="${branchName%% *}";
@@ -29,28 +29,28 @@ prompt_git() {
 
 	# Parse ahead/behind from header
 	case "$header" in
-		*\[ahead*behind*\]*) s+=’↑↓’ ;;
-		*\[ahead*\]*)        s+=’↑’ ;;
-		*\[behind*\]*)       s+=’↓’ ;;
+		*\[ahead*behind*\]*) s+='⇡⇣' ;;
+		*\[ahead*\]*)        s+='⇡' ;;
+		*\[behind*\]*)       s+='⇣' ;;
 	esac;
 
 	# Parse file statuses from remaining lines
-	local lines="${status_output#*$’\n’}";
+	local lines="${status_output#*$'\n'}";
 	if [ "$lines" != "$status_output" ]; then
 		case "$lines" in
-			*[MADRC][\ ]*) s+=’+’ ;;
+			*[MADRC][\ ]*) s+='+' ;;
 		esac;
 		case "$lines" in
-			*\ [MD]*) s+=’!’ ;;
+			*\ [MD]*) s+='!' ;;
 		esac;
 		case "$lines" in
-			*\?\?*) s+=’?’ ;;
+			*\?\?*) s+='?' ;;
 		esac;
 	fi;
 
 	# Stash check (not available from git status)
 	if git rev-parse --verify refs/stash &>/dev/null 2>&1; then
-		s+=’$’;
+		s+='$';
 	fi;
 
 	[ -n "${s}" ] && s=" [${s}]";
