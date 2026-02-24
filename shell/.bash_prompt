@@ -13,52 +13,44 @@ elif infocmp xterm-256color >/dev/null 2>&1; then
 fi;
 
 prompt_git() {
-	local s='';
-	local branchName='';
+	local s=’’;
+	local branchName=’’;
 
-	# Check if the current directory is in a Git repository.
-	git rev-parse --is-inside-work-tree &>/dev/null || return;
+	# Single git call: branch, ahead/behind, staged, unstaged, untracked
+	local status_output;
+	status_output="$(git status -b --porcelain --ignore-submodules 2>/dev/null)" || return;
 
-	# Check for what branch we’re on.
-	# Get the short symbolic ref. If HEAD isn’t a symbolic ref, get a
-	# tracking remote branch or tag. Otherwise, get the
-	# short SHA for the latest commit, or give up.
-	branchName="$(git symbolic-ref --quiet --short HEAD 2> /dev/null || \
-		git describe --all --exact-match HEAD 2> /dev/null || \
-		git rev-parse --short HEAD 2> /dev/null || \
-		echo '(unknown)')";
+	# Parse branch name from header: ## branch...remote [ahead N, behind N]
+	local header="${status_output%%$’\n’*}";
+	branchName="${header#\#\# }";
+	branchName="${branchName%%...*}";
+	branchName="${branchName%% *}";
+	[ -z "$branchName" ] && branchName="(unknown)";
 
-	# Early exit for Chromium & Blink repo, as the dirty check takes too long.
-	# Thanks, @paulirish!
-	# https://github.com/paulirish/dotfiles/blob/dd33151f/.bash_prompt#L110-L123
-	repoUrl="$(git config --get remote.origin.url)";
-	if grep -q 'chromium/src.git' <<< "${repoUrl}"; then
-		s+='*';
-	else
-		# Check for staged, unstaged, and untracked (single git call).
-		local status_output;
-		status_output="$(git status --porcelain --ignore-submodules 2>/dev/null)";
-		if grep -q '^[MADRC]' <<< "$status_output"; then
-			s+='+';
-		fi;
-		if grep -q '^.[MD]' <<< "$status_output"; then
-			s+='!';
-		fi;
-		if grep -q '^??' <<< "$status_output"; then
-			s+='?';
-		fi;
-		# Check for stashed files.
-		if $(git rev-parse --verify refs/stash &>/dev/null); then
-			s+='$';
-		fi;
-		# Check for unpushed/unpulled commits (single git call).
-		local ahead_behind;
-		if ahead_behind="$(git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null)"; then
-			local ahead="${ahead_behind%%	*}";
-			local behind="${ahead_behind##*	}";
-			[ "$ahead" -gt 0 ] 2>/dev/null && s+='⇡';
-			[ "$behind" -gt 0 ] 2>/dev/null && s+='⇣';
-		fi;
+	# Parse ahead/behind from header
+	case "$header" in
+		*\[ahead*behind*\]*) s+=’⇡⇣’ ;;
+		*\[ahead*\]*)        s+=’⇡’ ;;
+		*\[behind*\]*)       s+=’⇣’ ;;
+	esac;
+
+	# Parse file statuses from remaining lines
+	local lines="${status_output#*$’\n’}";
+	if [ "$lines" != "$status_output" ]; then
+		case "$lines" in
+			*[MADRC][\ ]*) s+=’+’ ;;
+		esac;
+		case "$lines" in
+			*\ [MD]*) s+=’!’ ;;
+		esac;
+		case "$lines" in
+			*\?\?*) s+=’?’ ;;
+		esac;
+	fi;
+
+	# Stash check (not available from git status)
+	if git rev-parse --verify refs/stash &>/dev/null 2>&1; then
+		s+=’$’;
 	fi;
 
 	[ -n "${s}" ] && s=" [${s}]";
