@@ -93,18 +93,36 @@ if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
     echo
 
     # Create backup
-    local backup_dir="$HOME/.claude.backup.$(date +%Y%m%d_%H%M%S)"
+    backup_dir="$HOME/.claude.backup.$(date +%Y%m%d_%H%M%S)"
     echo -e "${YELLOW}Creating backup at:${NC} $backup_dir"
     cp -r "$CLAUDE_DIR" "$backup_dir"
     echo -e "${GREEN}✓ Backup created${NC}"
+    echo
+
+    # Ask about audio notifications
+    echo -e "${BLUE}Install audio notifications?${NC} (plays sounds on task completion)"
+    echo "  Requires: Python 3"
+    echo "  Audio files: ~2MB"
+    echo
+    read -p "Install audio? (y/N): " -n 1 -r audio_choice
+    echo
     echo
 
     # Create symlinks for directories
     echo -e "${YELLOW}Creating symlinks for directories...${NC}"
     create_symlink "$REPO_DIR/claude/hooks" "$CLAUDE_DIR/hooks" "hooks/"
     create_symlink "$REPO_DIR/claude/commands" "$CLAUDE_DIR/commands" "commands/"
-    create_symlink "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents" "agents/"
-    create_symlink "$REPO_DIR/claude/audio" "$CLAUDE_DIR/audio" "audio/"
+    if [ -d "$REPO_DIR/claude/agents" ]; then
+        create_symlink "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents" "agents/"
+    fi
+    if [[ "$audio_choice" =~ ^[Yy]$ ]]; then
+        create_symlink "$REPO_DIR/claude/audio" "$CLAUDE_DIR/audio" "audio/"
+    else
+        # Remove audio dir so play_audio.py becomes a no-op
+        if [ -L "$CLAUDE_DIR/audio" ]; then rm "$CLAUDE_DIR/audio"; fi
+        if [ -d "$CLAUDE_DIR/audio" ]; then rm -rf "$CLAUDE_DIR/audio"; fi
+        echo -e "${YELLOW}  Skipped audio/ (notifications disabled)${NC}"
+    fi
     echo
 
     # Create symlinks for files
@@ -147,6 +165,25 @@ if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
     chmod +x "$CLAUDE_DIR/hooks"/*.sh "$CLAUDE_DIR/hooks"/*.py 2>/dev/null || true
     chmod +x "$CLAUDE_DIR/statusline-command.sh"
     echo -e "${GREEN}✓ Scripts are executable${NC}"
+    echo
+
+    # Star the repo
+    echo -e "${BLUE}Star the meirpro-dotfiles repo on GitHub?${NC}"
+    echo "  (Helps others on the team discover these tools)"
+    read -p "Star repo? (y/N): " -n 1 -r star_choice
+    echo
+    if [[ "$star_choice" =~ ^[Yy]$ ]]; then
+        if command -v gh &>/dev/null; then
+            if gh api user/starred/meirpro/meirpro-dotfiles -X PUT 2>/dev/null; then
+                echo -e "${GREEN}  Starred meirpro/meirpro-dotfiles${NC}"
+            else
+                echo -e "${YELLOW}  Could not star — run 'gh auth login' first${NC}"
+            fi
+        else
+            echo -e "${YELLOW}  GitHub CLI (gh) not installed. Star manually:${NC}"
+            echo "  https://github.com/meirpro/meirpro-dotfiles"
+        fi
+    fi
     echo
 
     echo -e "${GREEN}✓ Claude Code configuration installed${NC}"
@@ -276,11 +313,15 @@ echo
 
 if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
     echo -e "${YELLOW}Claude Code features installed:${NC}"
-    echo "  • Custom status line with session tracking"
-    echo "  • TypeScript/lint hooks for automatic code checking"
-    echo "  • Audio notification hooks"
-    echo "  • Slash commands: /commit-emoji, /commit"
-    echo "  • 12 specialized agents for code quality"
+    echo "  • Auto TypeScript checking on every file edit"
+    echo "  • Auto ESLint on every file edit"
+    echo "  • Auto Prettier formatting on every file edit"
+    echo "  • Security rules (blocks reading .env, secrets, keys)"
+    echo "  • Git safety rules (no git add -A, no co-author lines)"
+    echo "  • Custom status line with git info, cost tracking, session ID"
+    if [[ "$audio_choice" =~ ^[Yy]$ ]]; then
+        echo "  • Audio notifications on task completion"
+    fi
     echo
 fi
 

@@ -1,9 +1,49 @@
-- Check TypeScript and linting at the end of your changes each time to make sure things still work. Linting issues are suggestions and recommended to follow, but sometimes they might be incorrect.
-- Don't use placeholder or "coming soon" code - always implement full functionality.
+# Team Development Rules
+
+> Shared configuration from [meirpro-dotfiles](https://github.com/meirpro/meirpro-dotfiles).
+> Hooks automatically check TypeScript, lint, and format on every file save.
+
+## Code Quality
+
+- Check TypeScript (`npx tsc --noEmit`) and linting (`npm run lint`) after making changes to ensure nothing is broken. Linting issues are suggestions — follow them when correct, but they can occasionally be wrong.
+- Don't use placeholder or "coming soon" code — always implement full functionality.
+- Format code with the project's formatter (Prettier, etc.) after editing files.
+
+## Git Safety
+
+- **Always pull the latest changes before starting work**: `git pull origin $(git branch --show-current)`. This avoids merge conflicts and wasted effort from working on stale code.
 - **NEVER include these lines in commit messages:**
   ```
-  🤖 Generated with [Claude Code](https://claude.ai/code)
+  Generated with Claude Code
 
   Co-Authored-By: Claude <noreply@anthropic.com>
   ```
-- **File path handling**: When the user provides a file or image path (especially relative macOS paths like `~/Desktop/screenshot.png` or `Documents/file.txt`), always use the Read tool to access the file. Don't assume or guess the content - explicitly read it first.
+- **NEVER use `git add -A` or `git add .`** — always stage specific files by name to avoid accidentally committing secrets or unrelated changes.
+- **NEVER stage files and commit in separate commands** (e.g. `git add file` then `git commit`). Always combine into a single command: `git add file1 file2 && git commit -m "message"`. This prevents other parallel agents from accidentally committing each other's work.
+- Review `git status` and `git diff` before committing. If you see changed files that you did NOT modify, another agent may be working in parallel — do NOT stage or commit those files.
+- **Run tests before committing** if the project has a test suite. Check `package.json` for `test`, `test:unit`, or similar scripts. A quick `npm test` catches regressions before they're pushed.
+
+## Code Style
+
+- **Respect the existing code style** in any file you edit. Match the file's existing patterns for quotes (single vs double), semicolons, indentation, and naming conventions. Don't reformat or restyle code you didn't change — it creates noisy diffs and obscures the real changes.
+
+## Secrets & Environment Safety
+
+- NEVER read, display, or commit: `.env`, `.env.local`, `.env.production`, `.env.staging`, or any file containing secrets (API keys, credentials, certificates).
+- **Exception**: `.env.example` files are safe to read and commit — they contain placeholder values, not real secrets.
+- NEVER commit files matching: `*.pem`, `*.key`, `*.crt`, `secrets/`, `credentials/`.
+- When referencing environment variables, describe what they do — never output their values.
+
+## File Handling
+
+- When the user provides a file or image path (especially relative paths like `~/Desktop/screenshot.png` or `Documents/file.txt`), always use the Read tool to access the file. Don't assume or guess the content — explicitly read it first.
+
+## Dev Server
+
+- Before starting a dev server, always check if one is already running on the expected port. Look up the port in `package.json` scripts (or other config like `vite.config.ts`, `wrangler.toml`), then run `lsof -ti :<port>` to check. If the port is already in use, skip starting the server and use the existing one.
+
+## Database Safety
+
+- Default to dry-run mode for any destructive database operation. Require explicit user confirmation before modifying or deleting data.
+- Test queries with SELECT first to verify scope before running UPDATE/DELETE.
+- Use idempotent migrations (IF NOT EXISTS / IF EXISTS patterns) so migrations are safe to run multiple times.

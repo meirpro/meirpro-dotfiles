@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ~/.claude/hooks/play_audio.py"
+            "command": "python3 ~/.claude/hooks/play_audio.py"
           }
         ]
       }
@@ -73,7 +73,16 @@
         ]
       }
     ],
-    "Stop": []
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.claude/hooks/play_audio.py"
+          }
+        ]
+      }
+    ]
   },
   "statusLine": {
     "type": "command",
@@ -100,9 +109,9 @@
     "frontend-design@claude-plugins-official": true,
     "feature-dev@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
-    "context7@claude-plugins-official": true,
+    "context7@claude-plugins-official": false,
     "sentry@claude-plugins-official": false,
-    "playwright@claude-plugins-official": true,
+    "playwright@claude-plugins-official": false,
     "github@claude-plugins-official": false,
     "figma@claude-plugins-official": false,
     "backend-api-security@claude-code-workflows": true,
@@ -149,8 +158,5 @@
     "team-collaboration@claude-code-workflows": true,
     "framework-migration@claude-code-workflows": true
   },
-  "autoUpdatesChannel": "latest",
-  "feedbackSurveyState": {
-    "lastShownTime": 1754089788688
-  }
+  "autoUpdatesChannel": "latest"
 }
