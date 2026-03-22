@@ -8,7 +8,7 @@
 - Check TypeScript (`npx tsc --noEmit`) and linting (`npm run lint`) after making changes to ensure nothing is broken. Linting issues are suggestions — follow them when correct, but they can occasionally be wrong.
 - Don't use placeholder or "coming soon" code — always implement full functionality.
 - Format code with the project's formatter (Prettier, etc.) after editing files.
-
+- **Write tests alongside implementation, not after** — write or update tests as you build, not as a separate follow-up step. Tests written after the fact tend to just confirm what the code already does rather than validating correctness.
 ## Git Safety
 
 - **Always pull the latest changes before starting work**: `git pull origin $(git branch --show-current)`. This avoids merge conflicts and wasted effort from working on stale code.
