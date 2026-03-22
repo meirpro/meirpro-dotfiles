@@ -43,6 +43,16 @@
 
 - Before starting a dev server, always check if one is already running on the expected port. Look up the port in `package.json` scripts (or other config like `vite.config.ts`, `wrangler.toml`), then run `lsof -ti :<port>` to check. If the port is already in use, skip starting the server and use the existing one.
 
+## Session Time Tracking
+
+A session timer runs automatically via hooks. Run `/wrapup` to log a time entry with a summary of work done.
+
+- **Run `/wrapup` when changing subjects** — if the user shifts to a different feature, bug, or topic, run `/wrapup` to close out the current work segment before moving on. This keeps time entries granular and useful for weekly reports.
+- **Run `/wrapup` after completing a task** — when implementation is done and tests pass (or after a successful `/verify`), run `/wrapup` to log the completed work.
+- **Multiple wrapups per session are fine** — each one logs a separate segment. The timer resets after each wrapup, so segments don't overlap.
+- **Don't ask for permission** to run `/wrapup` — just do it as part of the natural workflow. Keep the summary concise and specific (e.g., "Added session heartbeat hook and crash recovery to time tracking system").
+- If the user explicitly says to skip wrapup or not to run it, respect that.
+
 ## Database Safety
 
 - Default to dry-run mode for any destructive database operation. Require explicit user confirmation before modifying or deleting data.
