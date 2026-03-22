@@ -27,6 +27,7 @@
 ## Code Style
 
 - **Respect the existing code style** in any file you edit. Match the file's existing patterns for quotes (single vs double), semicolons, indentation, and naming conventions. Don't reformat or restyle code you didn't change — it creates noisy diffs and obscures the real changes.
+- **Don't `cd` into directories to run commands** — use full paths directly. Avoid `cd some/dir && command`; prefer `command some/dir/file` or pass the path as an argument.
 
 ## Secrets & Environment Safety
 
