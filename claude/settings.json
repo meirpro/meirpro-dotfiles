@@ -81,6 +81,26 @@
             "command": "python3 ~/.claude/hooks/play_audio.py"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/session_heartbeat.sh",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/session_tracker.sh",
+            "statusMessage": "Starting session timer..."
+          }
+        ]
       }
     ]
   },
@@ -156,7 +176,20 @@
     "security-compliance@claude-code-workflows": true,
     "security-scanning@claude-code-workflows": true,
     "team-collaboration@claude-code-workflows": true,
-    "framework-migration@claude-code-workflows": true
+    "framework-migration@claude-code-workflows": true,
+    "swift-lsp@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "serena@claude-plugins-official": false,
+    "skill-creator@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "playground@claude-plugins-official": true,
+    "postman@claude-plugins-official": true,
+    "agent-orchestration@claude-code-workflows": true,
+    "content-marketing@claude-code-workflows": true,
+    "stripe@stripe": true
   },
-  "autoUpdatesChannel": "latest"
+  "autoUpdatesChannel": "latest",
+  "voiceEnabled": true
 }
