@@ -71,6 +71,15 @@
             "command": "bash ~/.claude/hooks/log_bash.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/log_tool_use.sh",
+            "async": true
+          }
+        ]
       }
     ],
     "Stop": [
@@ -188,7 +197,16 @@
     "postman@claude-plugins-official": true,
     "agent-orchestration@claude-code-workflows": true,
     "content-marketing@claude-code-workflows": true,
-    "stripe@stripe": true
+    "stripe@stripe": true,
+    "impeccable@impeccable": true
+  },
+  "extraKnownMarketplaces": {
+    "impeccable": {
+      "source": {
+        "source": "github",
+        "repo": "pbakaus/impeccable"
+      }
+    }
   },
   "autoUpdatesChannel": "latest",
   "voiceEnabled": true
