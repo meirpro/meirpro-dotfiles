@@ -48,11 +48,14 @@
 
 A session timer runs automatically via hooks. Run `/wrapup` to log a time entry with a summary of work done.
 
+- **Parallel agent support**: Each agent gets its own session file at `~/.claude/sessions/{session_id}.json`. The heartbeat reads `session_id` from stdin to update the correct file. Wrapup detects overlapping sessions and logs `parallel_with` in the time entry.
 - **Run `/wrapup` when changing subjects** — if the user shifts to a different feature, bug, or topic, run `/wrapup` to close out the current work segment before moving on. This keeps time entries granular and useful for weekly reports.
 - **Run `/wrapup` after completing a task** — when implementation is done and tests pass (or after a successful `/verify`), run `/wrapup` to log the completed work.
 - **Multiple wrapups per session are fine** — each one logs a separate segment. The timer resets after each wrapup, so segments don't overlap.
 - **Don't ask for permission** to run `/wrapup` — just do it as part of the natural workflow. Keep the summary concise and specific (e.g., "Added session heartbeat hook and crash recovery to time tracking system").
 - If the user explicitly says to skip wrapup or not to run it, respect that.
+- **Weekly report**: Run `bash ~/.claude/hooks/session_report.sh [days]` for a summary with agent-hours, wall time, parallelism ratio, and active sessions.
+- **Symlink caution**: Hook scripts live in `meirpro-dotfiles/claude/hooks/` as real files, symlinked from `~/.claude/hooks/`. Never use `ln -sf` when the target is already a symlink — it follows the chain and overwrites the source. Always `rm` first, then `ln -s`.
 
 ## Database Safety
 
