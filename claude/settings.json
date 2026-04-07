@@ -99,6 +99,42 @@
             "async": true
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/lightwing/Documents/GitHub/claude_timings_wrapper/hooks/claude-timing-stop.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/track_event.sh stop",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/lightwing/Documents/GitHub/claude_timings_wrapper/hooks/claude-timing-start.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/track_event.sh prompt",
+            "async": true
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -108,6 +144,15 @@
             "type": "command",
             "command": "bash ~/.claude/hooks/session_tracker.sh",
             "statusMessage": "Starting session timer..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/track_event.sh start",
+            "async": true
           }
         ]
       }
@@ -194,11 +239,19 @@
     "skill-creator@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "playground@claude-plugins-official": true,
-    "postman@claude-plugins-official": true,
+    "postman@claude-plugins-official": false,
     "agent-orchestration@claude-code-workflows": true,
     "content-marketing@claude-code-workflows": true,
     "stripe@stripe": true,
-    "impeccable@impeccable": true
+    "impeccable@impeccable": true,
+    "legalzoom@claude-plugins-official": true,
+    "neon@claude-plugins-official": true,
+    "cloudinary@claude-plugins-official": true,
+    "product-tracking-skills@claude-plugins-official": true,
+    "systems-programming@claude-code-workflows": true,
+    "wordpress.com@claude-plugins-official": true,
+    "clangd-lsp@claude-plugins-official": true,
+    "telegram@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "impeccable": {
