@@ -79,20 +79,24 @@ for arg in "$@"; do
     esac
 done
 
-# Ask about audio if not specified via args
+# Ask about audio if not specified via args (skip prompt in non-interactive mode)
 if [ -z "$INSTALL_AUDIO" ]; then
-    echo -e "${CYAN}Install audio notifications?${NC} (plays sounds on task completion)"
-    echo -e "  Requires: Python 3"
-    echo -e "  Audio files: ~2MB"
-    echo ""
-    read -p "Install audio? (y/N): " -n 1 -r audio_choice
-    echo ""
-    if [[ "$audio_choice" =~ ^[Yy]$ ]]; then
-        INSTALL_AUDIO="yes"
+    if [ -t 0 ]; then
+        echo -e "${CYAN}Install audio notifications?${NC} (plays sounds on task completion)"
+        echo -e "  Requires: Python 3"
+        echo -e "  Audio files: ~2MB"
+        echo ""
+        read -p "Install audio? (y/N): " -n 1 -r audio_choice
+        echo ""
+        if [[ "$audio_choice" =~ ^[Yy]$ ]]; then
+            INSTALL_AUDIO="yes"
+        else
+            INSTALL_AUDIO="no"
+        fi
+        echo ""
     else
         INSTALL_AUDIO="no"
     fi
-    echo ""
 fi
 
 # Symlink helper — creates symlink with backup of existing files
@@ -197,21 +201,23 @@ if [ "$all_ok" = false ]; then
 fi
 echo ""
 
-# Star the repo on GitHub
-echo -e "${CYAN}Star the meirpro-dotfiles repo on GitHub?${NC}"
-echo -e "  (Helps others on the team discover these tools)"
-read -p "Star repo? (y/N): " -n 1 -r star_choice
-echo ""
-if [[ "$star_choice" =~ ^[Yy]$ ]]; then
-    if command -v gh &>/dev/null; then
-        if gh api user/starred/meirpro/meirpro-dotfiles -X PUT 2>/dev/null; then
-            echo -e "${GREEN}  Starred meirpro/meirpro-dotfiles${NC}"
+# Star the repo on GitHub (skip in non-interactive mode)
+if [ -t 0 ]; then
+    echo -e "${CYAN}Star the meirpro-dotfiles repo on GitHub?${NC}"
+    echo -e "  (Helps others on the team discover these tools)"
+    read -p "Star repo? (y/N): " -n 1 -r star_choice
+    echo ""
+    if [[ "$star_choice" =~ ^[Yy]$ ]]; then
+        if command -v gh &>/dev/null; then
+            if gh api user/starred/meirpro/meirpro-dotfiles -X PUT 2>/dev/null; then
+                echo -e "${GREEN}  Starred meirpro/meirpro-dotfiles${NC}"
+            else
+                echo -e "${YELLOW}  Could not star — run 'gh auth login' first${NC}"
+            fi
         else
-            echo -e "${YELLOW}  Could not star — run 'gh auth login' first${NC}"
+            echo -e "${YELLOW}  GitHub CLI (gh) not installed. Star manually:${NC}"
+            echo -e "${CYAN}  https://github.com/meirpro/meirpro-dotfiles${NC}"
         fi
-    else
-        echo -e "${YELLOW}  GitHub CLI (gh) not installed. Star manually:${NC}"
-        echo -e "${CYAN}  https://github.com/meirpro/meirpro-dotfiles${NC}"
     fi
 fi
 echo ""
