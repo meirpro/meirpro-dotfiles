@@ -107,15 +107,6 @@
             "command": "/Users/lightwing/Documents/GitHub/claude_timings_wrapper/hooks/claude-timing-stop.sh"
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/track_event.sh stop",
-            "async": true
-          }
-        ]
       }
     ],
     "UserPromptSubmit": [
@@ -124,15 +115,6 @@
           {
             "type": "command",
             "command": "/Users/lightwing/Documents/GitHub/claude_timings_wrapper/hooks/claude-timing-start.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/track_event.sh prompt",
-            "async": true
           }
         ]
       }
@@ -144,15 +126,6 @@
             "type": "command",
             "command": "bash ~/.claude/hooks/session_tracker.sh",
             "statusMessage": "Starting session timer..."
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/track_event.sh start",
-            "async": true
           }
         ]
       }
