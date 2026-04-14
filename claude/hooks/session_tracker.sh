@@ -33,9 +33,37 @@ SESSION_ID=$(cat 2>/dev/null | jq -r '.session_id // empty' 2>/dev/null)
 PROJECT_PATH="$(pwd)"; PROJECT_NAME="$(basename "$PROJECT_PATH")"
 BRANCH="$(git branch --show-current 2>/dev/null || echo n/a)"
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-python3 -c "
+
+SESSION_LIB="$HOME/.claude/hooks/session_lib.py"
+
+# Try to migrate any existing PID-format orphan for this session_id
+EXISTING=$(python3 "$SESSION_LIB" resolve "$SESSION_ID" 2>/dev/null)
+
+if [ -n "$EXISTING" ] && [ -f "$EXISTING" ]; then
+  # File already exists (UUID or just-migrated PID) — update fields, don't overwrite
+  python3 -c "
+import json
+try:
+ with open('$EXISTING') as f: d=json.load(f)
+ d.setdefault('session_id','$SESSION_ID')
+ d.setdefault('start','$NOW')
+ d.setdefault('last_seen','$NOW')
+ d.setdefault('active_minutes',0)
+ if not d.get('project') or d.get('project')=='?':
+  d['project']='$PROJECT_NAME'
+ if not d.get('project_path') or d.get('project_path')=='?':
+  d['project_path']='$PROJECT_PATH'
+ d['branch']='$BRANCH'
+ with open('$EXISTING','w') as f: json.dump(d,f,indent=2)
+except: pass
+" 2>/dev/null
+else
+  # Fresh session — create a new UUID file
+  python3 -c "
 import json
 with open('$SESSIONS_DIR/${SESSION_ID}.json','w') as f:
  json.dump({'session_id':'$SESSION_ID','start':'$NOW','last_seen':'$NOW','active_minutes':0,'project':'$PROJECT_NAME','project_path':'$PROJECT_PATH','branch':'$BRANCH','recent_commits':[],'uncommitted_changes':0},f,indent=2)
 "
+fi
+
 exit 0
