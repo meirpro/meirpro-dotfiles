@@ -282,4 +282,117 @@ if pi:
 
 print(json.dumps(r, indent=2))
 " "$SUMMARY"
+
+# === Push wrapup segment to CC API (best-effort) ===
+TRACK_KEY_FILE="$HOME/.claude/track-key"
+WRAPUP_QUEUE="$HOME/.claude/wrapup-queue.jsonl"
+TIME_LOG_FILE="$HOME/.claude/time-log.jsonl"
+
+if [ -f "$TRACK_KEY_FILE" ] && [ -f "$SESSION_FILE" ]; then
+    SESSION_FILE_PATH="$SESSION_FILE" \
+    TIME_LOG_PATH="$TIME_LOG_FILE" \
+    WRAPUP_QUEUE_PATH="$WRAPUP_QUEUE" \
+    TRACK_KEY_VAL=$(cat "$TRACK_KEY_FILE") \
+    python3 - <<'PYEOF' 2>/dev/null || true
+import json, os, sys
+import urllib.request, urllib.error
+
+session_file = os.environ.get("SESSION_FILE_PATH")
+time_log = os.environ.get("TIME_LOG_PATH")
+queue_file = os.environ.get("WRAPUP_QUEUE_PATH")
+track_key = os.environ.get("TRACK_KEY_VAL", "")
+
+if not (session_file and time_log and track_key):
+    sys.exit(0)
+
+# Load session JSON for telemetry block
+try:
+    with open(session_file) as f:
+        session = json.load(f)
+except Exception:
+    sys.exit(0)
+
+telemetry = session.get("telemetry", {}) or {}
+live = telemetry.get("live", {}) or {}
+totals = telemetry.get("totals", {}) or {}
+
+# Read the LAST row from time-log.jsonl (just appended by the wrapup logic above)
+last_row = None
+try:
+    with open(time_log) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                last_row = line
+    if not last_row:
+        sys.exit(0)
+    last_data = json.loads(last_row)
+except Exception:
+    sys.exit(0)
+
+# Build the API payload from the time-log row + telemetry
+payload = {
+    "session_id": last_data.get("session_id"),
+    "segment_num": last_data.get("segment", 1),
+    "start": last_data.get("start"),
+    "end": last_data.get("end"),
+    "duration_ms": (last_data.get("duration_min") or 0) * 60 * 1000,
+    "wall_ms": (last_data.get("wall_clock_min") or 0) * 60 * 1000,
+    "summary": last_data.get("summary"),
+    "files_changed": last_data.get("files_changed", 0),
+    "commits": last_data.get("commits", []),
+    "parallel_with": last_data.get("parallel_with", []),
+    "cwd": last_data.get("project_path"),
+    "branch": last_data.get("branch"),
+    # Live telemetry from statusline
+    "cost_usd": live.get("cost_usd"),
+    "api_duration_ms": live.get("api_duration_ms"),
+    "wall_duration_ms": live.get("wall_duration_ms"),
+    "lines_added": live.get("lines_added"),
+    "lines_removed": live.get("lines_removed"),
+    "tokens_in": live.get("tokens_in"),
+    "tokens_out": live.get("tokens_out"),
+    "model_id": live.get("model_id"),
+    "model_display": live.get("model_display"),
+    "claude_code_version": live.get("claude_code_version"),
+    "context_window_size": live.get("context_window_size"),
+    "context_used_percentage": live.get("context_used_percentage"),
+    "rate_limit_5h_pct": live.get("rate_limit_5h_pct"),
+    "rate_limit_7d_pct": live.get("rate_limit_7d_pct"),
+    # Sub-agent telemetry
+    "sub_agent_count": totals.get("sub_agent_count", 0),
+    "sub_agent_total_ms": totals.get("sub_agent_total_ms", 0),
+    "parallelism_factor": totals.get("parallelism_factor"),
+}
+
+# Drop if missing required fields
+if not payload.get("session_id") or not payload.get("start") or not payload.get("end"):
+    sys.exit(0)
+
+# POST
+try:
+    req = urllib.request.Request(
+        "https://cc.meir.pro/api/wrapup_segments",
+        data=json.dumps(payload).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "X-Track-Key": track_key,
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        if resp.status not in (200, 201):
+            raise Exception(f"HTTP {resp.status}")
+except Exception:
+    # Queue for later flush
+    try:
+        with open(queue_file, "a") as qf:
+            qf.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+
+sys.exit(0)
+PYEOF
+fi
+
 exit 0
