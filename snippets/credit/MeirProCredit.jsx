@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Heart } from "lucide-react";
 
 /**
  * Visible footer credit linking back to meir.pro.
@@ -7,24 +7,25 @@ import { useEffect } from "react";
  *
  * Props:
  *   - project    (required) — short identifier appended to the link as ?s=<project>
- *                              for referral tracking
+ *                              for referral tracking. Should match the
+ *                              `referrerLink` value in meir.pro's ExperienceList.
  *   - className  (optional) — extra classes on the wrapper <p>
- *   - heart      (optional) — character to render as the heart (default: '♥')
  *   - adminHref  (optional) — if set, shift+clicking the link navigates here
- *                              instead of opening meir.pro
+ *                              instead of opening meir.pro (hidden admin entry)
+ *
+ * Features:
+ *   - `select-all` wrapping span: selecting any part selects the whole credit
+ *   - `sr-only` "love" span: when copied, pasted text reads "Made with love
+ *     by Meir.pro" (screen-reader accessible + nice copy/paste experience)
+ *   - Red <Heart> icon from lucide-react (install: `npm i lucide-react`)
+ *   - Tailwind CSS classes — assumes the target project has Tailwind configured
  *
  * This is the visible component. The console credit lives in a separate
  * <script> snippet (see console-snippet.html) so removing one does not
  * affect the other.
  */
-export default function MeirProCredit({
-  project,
-  className = "",
-  heart = "♥",
-  adminHref,
-}) {
+export default function MeirProCredit({ project, className = "", adminHref }) {
   if (!project) {
-    // Fail loud in dev so we don't ship an untracked credit
     if (
       typeof process !== "undefined" &&
       process.env.NODE_ENV !== "production"
@@ -38,38 +39,30 @@ export default function MeirProCredit({
   const handleClick = (e) => {
     if (adminHref && e.shiftKey) {
       e.preventDefault();
-      // Navigate within the same tab; consumer can change to router.push if needed
       window.location.assign(adminHref);
     }
   };
 
   return (
-    <p
-      className={className}
-      style={{
-        fontSize: "0.875rem",
-        color: "#6b7280",
-        margin: 0,
-      }}
-    >
-      Made with{" "}
-      <span aria-hidden="true" style={{ color: "#ef4444" }}>
-        {heart}
+    <p className={`text-muted-foreground text-xs ${className}`}>
+      <span className="select-all">
+        Made with <span className="sr-only">love</span>
+        <Heart
+          aria-hidden="true"
+          className="inline h-4 w-4 text-red-500 fill-current align-text-bottom"
+          style={{ color: "#ef4444" }}
+        />{" "}
+        by{" "}
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={handleClick}
+          className="text-primary hover:text-accent hover:underline font-medium transition-colors"
+        >
+          Meir.pro
+        </a>
       </span>
-      <span style={{ position: "absolute", left: "-9999px" }}>love</span> by{" "}
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={handleClick}
-        style={{
-          color: "inherit",
-          textDecoration: "underline",
-          textUnderlineOffset: "2px",
-        }}
-      >
-        Meir.pro
-      </a>
     </p>
   );
 }
