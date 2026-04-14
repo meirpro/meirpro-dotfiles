@@ -53,9 +53,32 @@ For TypeScript projects, you can optionally rename to `.tsx` — the component h
 interface MeirProCreditProps {
   project: string
   className?: string
-  adminHref?: string
+  hiddenHref?: string
 }
 ```
+
+### IMPORTANT — React Server Components compatibility (Next.js App Router)
+
+The source file is marked `"use client"` at the top. **Do not remove this line.** The component has an `onClick` handler (for the optional `hiddenHref` shift-click feature), and function props cannot be serialized across the RSC boundary. Without `"use client"`, importing the component from a Server Component footer (the default in App Router) throws at runtime:
+
+> Event handlers cannot be passed to Client Component props.
+> `<a ... onClick={function handleClick} ...>`
+
+The component is a tiny leaf island — ~200 bytes gzipped — so making it a client component has negligible cost. If you ever decide you don't want the hidden-link feature and want a zero-JS server component, delete the `"use client"` line AND the `hiddenHref` prop AND the `handleClick` handler together. Don't delete just one — they're a set.
+
+### Dark-footer color overrides
+
+The source component uses `text-muted-foreground` and `text-primary hover:text-accent` — these are shadcn/ui-style design-token classes that assume a **light background**. If the target project's footer is dark (e.g. `bg-sapphire text-white`, `bg-slate-900 text-white`), those classes will render the credit invisible or low-contrast. In that case, override them on the wrapper `className` and the link className so they inherit the parent's text color, e.g.:
+
+```tsx
+<MeirProCredit project="PROJECT_NAME" className="text-white/60" />
+```
+
+…and edit the link className inside the component from `text-primary hover:text-accent hover:underline font-medium` to something like `underline hover:text-white transition-colors`. Always check the footer's background color before installing and adjust accordingly.
+
+### Tailwind v4 note
+
+Tailwind v4 removed several legacy utility classes. If the project uses Tailwind v4 without a shadcn/ui-style theme layer, classes like `text-muted-foreground`, `text-primary`, and `text-accent` may not exist. Verify by grepping the project for `text-muted-foreground` — if it returns nothing, the project doesn't define those tokens and you must replace them with concrete colors (`text-white/60`, `text-slate-500`, etc.).
 
 ## Step 3 — Add it to the footer
 
