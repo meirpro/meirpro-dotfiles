@@ -56,12 +56,18 @@
     '                                     ░▒▓▒░                                       '
   ].join('\n')
   var msg = '\n' + art + '\n\n  Built by Meir Knapp\n  https://meir.pro/' + ref + '\n'
+  // DevTools theme detection: Chrome/Firefox/Safari DevTools default to
+  // following the OS color scheme, so `prefers-color-scheme` is our best
+  // proxy. Users who override DevTools theme independently will see the
+  // OS-theme color — there is no web API to read the DevTools theme directly.
+  var isDark = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+  var color = isDark ? '#fff' : '#222'
   if (typeof console !== 'undefined' && console.log) {
     // Two-arg form lets browsers that support %c style the text portion.
     // Browsers that don't support %c just print the text literally.
     console.log(
       '%c' + msg,
-      'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1; color: #fff;'
+      'font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1; color: ' + color + ';'
     )
   }
 })()
