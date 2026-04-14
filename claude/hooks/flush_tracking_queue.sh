@@ -2,7 +2,7 @@
 # flush_tracking_queue.sh — Send queued events that failed to POST (offline periods)
 # Usage: bash ~/.claude/hooks/flush_tracking_queue.sh
 #
-# Reads ~/.claude/tracking-queue.jsonl, POSTs each as /api/event/batch,
+# Reads ~/.claude/tracking-queue.jsonl, POSTs as /api/event/batch,
 # removes the file on success.
 
 QUEUE_FILE="$HOME/.claude/tracking-queue.jsonl"
@@ -30,24 +30,23 @@ TRACK_KEY=$(cat "$TRACK_KEY_FILE")
 
 echo "Flushing $LINE_COUNT queued events..."
 
-# Build JSON array from JSONL
-EVENTS="["
-FIRST=true
-while IFS= read -r line; do
-  if [ "$FIRST" = true ]; then
-    FIRST=false
-  else
-    EVENTS="$EVENTS,"
+# Use jq to safely build the batch payload from JSONL
+# Handles escaped chars, malformed lines, etc.
+PAYLOAD=$(jq -s '{events: .}' "$QUEUE_FILE" 2>/dev/null)
+if [ $? -ne 0 ]; then
+  # Fallback: fix common issue (escaped braces) and retry
+  PAYLOAD=$(sed 's/\\{/{/g; s/\\}/}/g' "$QUEUE_FILE" | jq -s '{events: .}' 2>/dev/null)
+  if [ $? -ne 0 ]; then
+    echo "Error: queue file contains unparseable JSON. Fix manually." >&2
+    exit 1
   fi
-  EVENTS="$EVENTS$line"
-done < "$QUEUE_FILE"
-EVENTS="$EVENTS]"
+fi
 
 RESPONSE=$(curl -s -w "\n%{http_code}" \
   -X POST "$TRACK_URL/api/event/batch" \
   -H "Content-Type: application/json" \
   -H "X-Track-Key: $TRACK_KEY" \
-  -d "{\"events\":$EVENTS}" \
+  -d "$PAYLOAD" \
   --max-time 30)
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
