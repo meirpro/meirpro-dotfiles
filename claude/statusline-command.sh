@@ -3,6 +3,44 @@
 # Read JSON input from stdin
 input=$(cat)
 
+# === Telemetry write: dump live cost/tokens/rate-limits to session JSON file ===
+# Best-effort, runs in background subshell so statusline rendering never blocks.
+{
+    SESSION_ID=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+    if [ -n "$SESSION_ID" ]; then
+        SESSION_FILE="$HOME/.claude/sessions/${SESSION_ID}.json"
+        if [ -f "$SESSION_FILE" ]; then
+            printf '%s' "$input" | jq --slurpfile session "$SESSION_FILE" '
+              ($session[0] // {}) * {
+                telemetry: (($session[0].telemetry // {}) * {
+                  live: {
+                    model_id: .model.id,
+                    model_display: .model.display_name,
+                    claude_code_version: .version,
+                    cost_usd: .cost.total_cost_usd,
+                    wall_duration_ms: .cost.total_duration_ms,
+                    api_duration_ms: .cost.total_api_duration_ms,
+                    lines_added: .cost.total_lines_added,
+                    lines_removed: .cost.total_lines_removed,
+                    tokens_in: .context_window.total_input_tokens,
+                    tokens_out: .context_window.total_output_tokens,
+                    context_window_size: .context_window.context_window_size,
+                    context_used_percentage: .context_window.used_percentage,
+                    context_remaining_percentage: .context_window.remaining_percentage,
+                    exceeds_200k_tokens: .exceeds_200k_tokens,
+                    rate_limit_5h_pct: .rate_limits.five_hour.used_percentage,
+                    rate_limit_5h_resets_at: .rate_limits.five_hour.resets_at,
+                    rate_limit_7d_pct: .rate_limits.seven_day.used_percentage,
+                    rate_limit_7d_resets_at: .rate_limits.seven_day.resets_at,
+                    last_updated: (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+                  }
+                })
+              }
+            ' > "${SESSION_FILE}.tmp" 2>/dev/null && mv "${SESSION_FILE}.tmp" "$SESSION_FILE" 2>/dev/null
+        fi
+    fi
+} >/dev/null 2>&1 &
+
 # Extract data from JSON
 current_dir=$(echo "$input" | jq -r '.workspace.current_dir')
 model_name=$(echo "$input" | jq -r '.model.display_name')
