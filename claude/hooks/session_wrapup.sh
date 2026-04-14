@@ -380,7 +380,7 @@ try:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=5) as resp:
+    with urllib.request.urlopen(req, timeout=15) as resp:
         if resp.status not in (200, 201):
             raise Exception(f"HTTP {resp.status}")
 except Exception:
