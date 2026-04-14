@@ -9,8 +9,8 @@
 # On failure: appends event to ~/.claude/tracking-queue.jsonl for later flush
 
 EVENT_TYPE="$1"
-METADATA="${2:-\{\}}"
-SESSION_ID="${CLAUDE_SESSION_ID:-unknown}"
+METADATA="${2:-{}}"
+SESSION_ID="${CLAUDE_SESSION_ID:-${SESSION_ID:-unknown}}"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 CWD="${PWD}"
 BRANCH=$(git -C "$CWD" branch --show-current 2>/dev/null || echo "")
