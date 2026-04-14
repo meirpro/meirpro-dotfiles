@@ -113,17 +113,58 @@ else:
     print(json.dumps({'error': 'Unrecognized session file format'}))
     sys.exit(1)
 
-# Add gap since last_seen if recent (< 30 min)
-try:
-    ls = p(last_seen_iso)
-    gap = (now - ls).total_seconds()
-    if 0 < gap < 1800:
-        active_min += int(gap / 60)
-except:
-    pass
-
 # Segment wall time (since last wrapup or session start)
 segment_start = last_wrapup
+
+# --- Try wrapper truth first ---
+# When spawned by claude-timed (cld), CLAUDE_TIMING_LOG points at this
+# session's exact JSONL log. Sum agent_work_ms + typing_ms for events
+# whose ts falls within [segment_start, now]. Falls back to heartbeat
+# active_min only if the env var is missing or parsing fails.
+wrapper_active_min = None
+timing_log = os.environ.get('CLAUDE_TIMING_LOG')
+if timing_log and os.path.isfile(timing_log):
+    try:
+        seg_start_dt = p(segment_start)
+        total_ms = 0
+        with open(timing_log) as tf:
+            for line in tf:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except:
+                    continue
+                ev_ts_str = ev.get('ts')
+                if not ev_ts_str:
+                    continue
+                try:
+                    ev_dt = datetime.fromisoformat(ev_ts_str.replace('Z', '+00:00'))
+                except:
+                    continue
+                if ev_dt < seg_start_dt:
+                    continue
+                if ev_dt > now:
+                    continue
+                total_ms += int(ev.get('agent_work_ms', 0) or 0)
+                total_ms += int(ev.get('typing_ms', 0) or 0)
+        wrapper_active_min = total_ms // 60000
+    except Exception:
+        wrapper_active_min = None
+
+if wrapper_active_min is not None:
+    active_min = wrapper_active_min
+else:
+    # Fallback: heartbeat-based estimation. Add gap since last_seen if recent (< 30 min)
+    try:
+        ls = p(last_seen_iso)
+        gap = (now - ls).total_seconds()
+        if 0 < gap < 1800:
+            active_min += int(gap / 60)
+    except:
+        pass
+
 wm = int((now - p(segment_start)).total_seconds() / 60)
 
 # Commits in this segment
