@@ -1,72 +1,244 @@
 #!/bin/bash
+# Session wrapup — logs a time segment, keeps session alive
+# Usage: bash session_wrapup.sh --session-id <UUID> "summary"
+#    or: bash session_wrapup.sh --pid <PID> "summary"       (finds session by PID)
+#    or: bash session_wrapup.sh "summary"                    (falls back to project-path match)
+
 SESSIONS_DIR="$HOME/.claude/sessions"
-LEGACY_FILE="$HOME/.claude/session-active.json"
 TIME_LOG="$HOME/.claude/time-log.jsonl"
-SUMMARY="${1:-no summary provided}"
+SESSION_ID=""
+PID=""
+SUMMARY=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --session-id) SESSION_ID="$2"; shift 2 ;;
+    --pid)        PID="$2"; shift 2 ;;
+    *)            SUMMARY="$1"; shift ;;
+  esac
+done
+
+SUMMARY="${SUMMARY:-no summary provided}"
 SESSION_FILE=""
-if [ -d "$SESSIONS_DIR" ]; then
+
+# Strategy 1: Direct session ID lookup (best — exact, parallel-safe)
+if [ -n "$SESSION_ID" ] && [ -f "$SESSIONS_DIR/$SESSION_ID.json" ]; then
+  SESSION_FILE="$SESSIONS_DIR/$SESSION_ID.json"
+fi
+
+# Strategy 1b: Use session_lib resolver to handle PID-format orphans
+if [ -z "$SESSION_FILE" ] && [ -n "$SESSION_ID" ]; then
+  RESOLVED=$(python3 "$HOME/.claude/hooks/session_lib.py" resolve "$SESSION_ID" 2>/dev/null)
+  if [ -n "$RESOLVED" ] && [ -f "$RESOLVED" ]; then
+    SESSION_FILE="$RESOLVED"
+  fi
+fi
+
+# Strategy 2: Find session file by PID field
+if [ -z "$SESSION_FILE" ] && [ -n "$PID" ] && [ -d "$SESSIONS_DIR" ]; then
+  SESSION_FILE=$(python3 -c "
+import json,os,glob
+for f in glob.glob(os.path.join('$SESSIONS_DIR','*.json')):
+  try:
+    with open(f) as h:
+      d=json.load(h)
+      if d.get('pid')==int('$PID') or os.path.basename(f)=='$PID.json':
+        print(f); break
+  except: pass
+" 2>/dev/null)
+fi
+
+# Strategy 3: Fallback — most recent file matching project path
+if [ -z "$SESSION_FILE" ] && [ -d "$SESSIONS_DIR" ]; then
   PROJECT_PATH="$(pwd)"
   SESSION_FILE=$(python3 -c "
 import json,os,glob
 p='$PROJECT_PATH'; best=None; bm=0
 for f in glob.glob(os.path.join('$SESSIONS_DIR','*.json')):
- try:
-  with open(f) as h: d=json.load(h)
-  if d.get('project_path','').lower()==p.lower():
-   m=os.path.getmtime(f)
-   if m>bm: best=f; bm=m
- except: pass
+  try:
+    with open(f) as h: d=json.load(h)
+    pp=d.get('project_path',d.get('cwd',''))
+    if pp.lower()==p.lower():
+      m=os.path.getmtime(f)
+      if m>bm: best=f; bm=m
+  except: pass
 if best: print(best)
 " 2>/dev/null)
 fi
-[ -z "$SESSION_FILE" ] && [ -f "$LEGACY_FILE" ] && SESSION_FILE="$LEGACY_FILE"
+
 if [ -z "$SESSION_FILE" ] || [ ! -f "$SESSION_FILE" ]; then
-  echo '{"error":"No active session found."}'; exit 1
+  echo '{"error":"No active session found. Pass --session-id <UUID> or --pid \$PPID."}'; exit 1
 fi
+
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 BRANCH="$(git branch --show-current 2>/dev/null || echo n/a)"
-LAST_WRAPUP="$(python3 -c "
-import json
-with open('$SESSION_FILE') as f: d=json.load(f)
-print(d.get('last_wrapup',d['start']))
-" 2>/dev/null)"
-RECENT_COMMITS="$(git log --oneline --since="$LAST_WRAPUP" --no-merges 2>/dev/null)"
+
 python3 -c "
 import json,sys,subprocess,os,glob
 from datetime import datetime,timezone
-def p(s): return datetime.strptime(s,'%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
-summary=sys.argv[1]
-with open('$SESSION_FILE') as f: data=json.load(f)
-now=p('$NOW'); ls=p(data.get('last_seen',data['start']))
-d=(now-ls).total_seconds(); am=data.get('active_minutes',0)
-if 0<d<1800: am+=int(d/60)
-ss=data.get('last_wrapup',data['start']); wm=int((now-p(ss)).total_seconds()/60)
-cr='''$RECENT_COMMITS'''.strip().split('\n') if '''$RECENT_COMMITS'''.strip() else []
-commits=[c for c in cr if c]
+
+def p(s):
+    return datetime.strptime(s,'%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+
+def ts_to_iso(ms):
+    return datetime.fromtimestamp(ms/1000,tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+summary = sys.argv[1]
+now = p('$NOW')
+
+with open('$SESSION_FILE') as f:
+    data = json.load(f)
+
+# --- Normalize across session file formats ---
+if 'start' in data:
+    start_iso = data['start']
+    sid = data.get('session_id', '?')
+    project_path = data.get('project_path', '?')
+    project = data.get('project', os.path.basename(project_path))
+    last_seen_iso = data.get('last_seen', start_iso)
+    active_min = data.get('active_minutes', 0)
+    last_wrapup = data.get('last_wrapup', start_iso)
+    wrapup_count = data.get('wrapup_count', 0)
+elif 'startedAt' in data:
+    start_iso = ts_to_iso(data['startedAt'])
+    sid = data.get('sessionId', '?')
+    project_path = data.get('cwd', '?')
+    project = os.path.basename(project_path)
+    last_seen_iso = start_iso
+    active_min = 0
+    last_wrapup = start_iso
+    wrapup_count = 0
+else:
+    print(json.dumps({'error': 'Unrecognized session file format'}))
+    sys.exit(1)
+
+# Add gap since last_seen if recent (< 30 min)
 try:
- n=len(commits)
- if n>0:
-  r=subprocess.run(['git','diff','--stat','--name-only',f'HEAD~{n}..HEAD'],capture_output=True,text=True,timeout=5)
-  fc=len([l for l in r.stdout.strip().split('\n') if l])
- else: fc=0
-except: fc=0
-wc=data.get('wrapup_count',0)+1
-pi=[]
-st=p(data['start'])
-for path in glob.glob(os.path.join('$SESSIONS_DIR','*.json')):
- if os.path.abspath(path)==os.path.abspath('$SESSION_FILE'): continue
- try:
-  with open(path) as f: o=json.load(f)
-  if p(o['start'])<=now and p(o.get('last_seen',o['start']))>=st: pi.append(o.get('session_id','?'))
- except: pass
-e={'date':'$NOW'[:10],'project':data.get('project','?'),'project_path':data.get('project_path','?'),'branch':'$BRANCH','session_id':data.get('session_id','?'),'segment':wc,'start':ss,'end':'$NOW','duration_min':am,'wall_clock_min':wm,'summary':summary,'files_changed':fc,'commits':commits}
-if pi: e['parallel_with']=pi
-with open('$TIME_LOG','a') as f: f.write(json.dumps(e)+'\n')
-os.remove('$SESSION_FILE')
-h,m=divmod(am,60); dd=f'{h}h {m}m' if h else f'{m}m'
-wh,wr=divmod(wm,60); wd=f'{wh}h {wr}m' if wh else f'{wr}m'
-r={'project':data.get('project','?'),'branch':'$BRANCH','session_id':data.get('session_id','?'),'segment':wc,'active_time':dd,'wall_time':wd,'active_min':am,'wall_min':wm,'start':ss,'end':'$NOW','commits':len(commits),'files_changed':fc,'summary':summary,'logged_to':'$TIME_LOG'}
-if pi: r['parallel_with']=pi; r['parallel_count']=len(pi)
-print(json.dumps(r,indent=2))
+    ls = p(last_seen_iso)
+    gap = (now - ls).total_seconds()
+    if 0 < gap < 1800:
+        active_min += int(gap / 60)
+except:
+    pass
+
+# Segment wall time (since last wrapup or session start)
+segment_start = last_wrapup
+wm = int((now - p(segment_start)).total_seconds() / 60)
+
+# Commits in this segment
+try:
+    r = subprocess.run(
+        ['git', 'log', '--oneline', '--since=' + segment_start, '--no-merges'],
+        capture_output=True, text=True, timeout=10
+    )
+    commits = [c for c in r.stdout.strip().split('\n') if c]
+except:
+    commits = []
+
+# Files changed
+try:
+    n = len(commits)
+    if n > 0:
+        r = subprocess.run(
+            ['git', 'diff', '--name-only', f'HEAD~{n}..HEAD'],
+            capture_output=True, text=True, timeout=5
+        )
+        fc = len([l for l in r.stdout.strip().split('\n') if l])
+    else:
+        fc = 0
+except:
+    fc = 0
+
+wc = wrapup_count + 1
+
+# Detect parallel agents
+pi = []
+start_dt = p(start_iso)
+for path in glob.glob(os.path.join('$SESSIONS_DIR', '*.json')):
+    if os.path.abspath(path) == os.path.abspath('$SESSION_FILE'):
+        continue
+    try:
+        with open(path) as f:
+            o = json.load(f)
+        if 'start' in o:
+            o_start = p(o['start'])
+            o_last = p(o.get('last_seen', o['start']))
+            o_sid = o.get('session_id', '?')
+        elif 'startedAt' in o:
+            o_start = p(ts_to_iso(o['startedAt']))
+            o_last = o_start
+            o_sid = o.get('sessionId', '?')
+        else:
+            continue
+        if o_start <= now and o_last >= start_dt:
+            pi.append(o_sid)
+    except:
+        pass
+
+# --- Write time log entry ---
+e = {
+    'date': '$NOW'[:10],
+    'project': project,
+    'project_path': project_path,
+    'branch': '$BRANCH',
+    'session_id': sid,
+    'segment': wc,
+    'start': segment_start,
+    'end': '$NOW',
+    'duration_min': active_min,
+    'wall_clock_min': wm,
+    'summary': summary,
+    'files_changed': fc,
+    'commits': commits,
+}
+if pi:
+    e['parallel_with'] = pi
+
+with open('$TIME_LOG', 'a') as f:
+    f.write(json.dumps(e) + '\n')
+
+# --- Update session file (keep alive, reset segment) ---
+data['last_wrapup'] = '$NOW'
+data['wrapup_count'] = wc
+data['active_minutes'] = 0  # reset for next segment
+data['last_seen'] = '$NOW'
+# Ensure enriched fields exist for future heartbeats
+if 'start' not in data and 'startedAt' in data:
+    data['start'] = start_iso
+    data['session_id'] = sid
+    data['project'] = project
+    data['project_path'] = project_path
+
+with open('$SESSION_FILE', 'w') as f:
+    json.dump(data, f, indent=2)
+
+# --- Output report ---
+h, m = divmod(active_min, 60)
+dd = f'{h}h {m}m' if h else f'{m}m'
+wh, wr = divmod(wm, 60)
+wd = f'{wh}h {wr}m' if wh else f'{wr}m'
+
+r = {
+    'project': project,
+    'branch': '$BRANCH',
+    'session_id': sid,
+    'segment': wc,
+    'active_time': dd,
+    'wall_time': wd,
+    'active_min': active_min,
+    'wall_min': wm,
+    'start': segment_start,
+    'end': '$NOW',
+    'commits': len(commits),
+    'files_changed': fc,
+    'summary': summary,
+    'logged_to': '$TIME_LOG',
+}
+if pi:
+    r['parallel_with'] = pi
+    r['parallel_count'] = len(pi)
+
+print(json.dumps(r, indent=2))
 " "$SUMMARY"
 exit 0
