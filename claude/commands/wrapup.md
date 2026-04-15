@@ -1,81 +1,132 @@
 ---
-description: "End-of-session: summarize work, log time, suggest CLAUDE.md improvements"
+description: "Log a time segment with summary for the current work topic"
 allowed-tools:
   [
     "Bash(bash ~/.claude/hooks/session_wrapup.sh:*)",
-    "Bash(cat ~/.claude/session-active.json:*)",
-    "Bash(cat ~/.claude/time-log.jsonl:*)",
-    "Bash(git diff:*)",
-    "Bash(git log:*)",
-    "Bash(git status:*)",
-    "Read",
+    "Bash(cat ~/.claude/sessions:*)",
+    "Bash(cat ~/.claude/timings:*)",
+    "Bash(echo $PPID:*)",
+    "Bash(python3 -c *)",
+    "Bash(git -C * log --oneline --since=* --no-merges -20:*)",
+    "Bash(git -C * branch --show-current:*)",
+    "Bash(git -C * diff --stat HEAD~*:*)",
   ]
 ---
 
 # Session Wrapup
 
-End-of-session routine: summarize what was accomplished, log time spent, and suggest CLAUDE.md improvements.
+Log a time segment for the current work topic, then continue the session.
 
-## Process
+## How sessions work
 
-### Step 1 — Check session exists
+- Each Claude Code process gets a session file at `~/.claude/sessions/<session_id>.json`
+- The heartbeat hook updates `last_seen` and `active_minutes` on every prompt
+- `/wrapup` logs a time segment WITHOUT destroying the session — it resets the segment start
+- Multiple wrapups per session are normal (one per topic/feature/task)
+- On session exit, `claude-timed` auto-wrapups with a mechanical summary as a fallback
 
-Read `~/.claude/session-active.json` to confirm an active session. If missing, tell the user no session is being tracked and skip to CLAUDE.md suggestions only.
+## Process — follow these steps EXACTLY
 
-### Step 2 — Gather context for summary
+### Step 1 — Resolve the current session deterministically
 
-Run in parallel:
-- `git log --oneline --since="<start_time>" --no-merges` — commits this session
-- `git diff --stat` — current changes
+**Never guess the session ID, and never use `ls -t` to pick the most-recent session file.** Parallel sessions and stale heartbeats mean "most recent" is frequently wrong. You MUST match by `project_path == $PWD`.
 
-### Step 3 — Write a summary
+Run this resolver exactly as written:
 
-Write a 1-3 sentence summary of what was accomplished, based on commits and diff. Be specific — mention feature names, bug fixes, files touched. Write it for a human reading a weekly report.
-
-### Step 4 — Call the wrapup script
-
-Run the wrapup script with the summary as argument:
-
+```bash
+python3 -c '
+import json, os, glob
+pwd = os.getcwd().lower()
+best, best_ts = None, ""
+for f in glob.glob(os.path.expanduser("~/.claude/sessions/*.json")):
+    try:
+        d = json.load(open(f))
+        pp = (d.get("project_path") or d.get("cwd") or "").lower()
+        if pp == pwd:
+            ls = d.get("last_seen") or d.get("start") or ""
+            if ls > best_ts:
+                best_ts = ls; best = f
+    except Exception: pass
+print(best or "")
+'
 ```
-bash ~/.claude/hooks/session_wrapup.sh "your summary here"
+
+This prints the absolute path of the correct session file, or an empty line if none exists. Rules:
+- **Zero matches** → tell the user "No session being tracked for $PWD" and stop. Do NOT fall back to anything.
+- **Exactly one match** → use it.
+- **Multiple matches** (parallel sessions in the same repo) → the resolver picks the one with the highest `last_seen`; that is always the right answer because only one session is actively being used in this terminal.
+
+Then `cat` the resolved file and extract:
+- `session_id` — for the wrapup script call
+- `last_wrapup` (or `start` if first wrapup) — for the git log --since filter
+- `project_path` — for git commands
+- `branch` — for the report
+
+**Sanity check before proceeding:** the extracted `project_path` MUST equal `$PWD` (case-insensitive). If it doesn't, STOP and report the mismatch — something is wrong with the session file.
+
+### Step 2 — Read wrapper timing (if available)
+
+```bash
+cat ~/.claude/timings/.current-session
 ```
 
-The script handles ALL mechanics:
-- Reads session-active.json for start time and session_id
-- Calculates duration
-- Appends a JSONL entry to `~/.claude/time-log.jsonl`
-- Deletes the session marker
-- Outputs a JSON report
+If that file exists, it contains the path to the current timing JSONL. Read the last 20 lines to find timing events. Sum up `typing_ms`, `agent_work_ms`, and `idle_ms` from events that occurred since `last_wrapup`. If the file doesn't exist, skip this step — timing data is optional.
 
-### Step 5 — Display the report
+### Step 3 — Get recent commits
 
-Parse the script's JSON output and display:
+Run exactly this command, substituting the timestamp from step 1:
+
+```bash
+git -C <project_path> log --oneline --since="<last_wrapup>" --no-merges -20
+```
+
+Count the number of commits returned.
+
+### Step 4 — Get changed files count
+
+If there were commits in step 3, run:
+
+```bash
+git -C <project_path> diff --stat HEAD~<commit_count>
+```
+
+Where `<commit_count>` is the count from step 3. If 0 commits, skip this step.
+
+### Step 5 — Write summary and call wrapup
+
+Write a 1-3 sentence summary of the work done in this segment. Be specific: feature names, bug fixes, files touched. If wrapper timing is available, append: "Agent: Xm, Typing: Ym, Idle: Zm".
+
+Then call the wrapup script:
+
+```bash
+bash ~/.claude/hooks/session_wrapup.sh --session-id <session_id> "<your summary here>"
+```
+
+### Step 6 — Display the report
+
+Parse the JSON output and format as:
 
 ```
 --- Session Wrapup ---
-Project:     hayom
-Branch:      main
-Active time: 47m (actual working time)
-Wall time:   2h 15m (start to finish)
-Commits:     3
-Files:       7 changed
-
-Summary: Added session time tracking with SessionStart hook,
-created /verify and /wrapup slash commands.
-
-Logged to: ~/.claude/time-log.jsonl
+Project:     <project>
+Branch:      <branch>
+Segment:     <N>
+Active time: <Xh Ym>
+Wall time:   <Xh Ym>
+Commits:     <N>
+Summary:     <text>
+Logged to:   ~/.claude/time-log.jsonl
 ---
 ```
 
-Active time only counts periods where Claude was actively working (gaps < 30 min between turns). Wall time is the full start-to-end span. For weekly reports, active time is the useful metric.
+## Rules
 
-### Step 6 — Suggest CLAUDE.md improvements
-
-Review the work done this session. If you learned something about the codebase that would help future sessions (patterns, gotchas, conventions), suggest specific additions to the project's CLAUDE.md. Present as a bulleted list the user can approve or reject. Do NOT auto-edit CLAUDE.md.
-
-## Important
-
-- Do NOT use inline `$()` or date arithmetic in Bash — the wrapup script handles all calculation
-- If duration >8 hours, warn the user the session file may be stale
-- If no commits were made, still log the session with summary "no commits — exploratory/review session"
-- The time-log.jsonl file is append-only — never read/modify existing entries
+- **Always pass `--session-id`** — never rely on project-path guessing
+- **NEVER pick the session by `ls -t` / most-recently-modified.** Stale heartbeats and parallel agents make that unreliable. Use the Step 1 resolver.
+- **Never proceed past Step 1 if `project_path != $PWD`.** A mismatch means you have the wrong session file.
+- **Run exactly the commands listed above** — no variations, no extra git commands
+- Each wrapup logs ONE segment. The session stays alive for the next topic.
+- Do NOT use inline `$()` or date arithmetic — the script handles all calculation
+- If wall time > 8 hours, warn the user the session may be stale
+- If no commits, still log: include "no commits — exploratory/review session"
+- The time-log.jsonl is append-only — never modify existing entries
