@@ -27,11 +27,35 @@ Log a time segment for the current work topic, then continue the session.
 
 ## Process — follow these steps EXACTLY
 
-### Step 1 — Resolve the current session deterministically
+### Step 1 — Resolve the current session
 
-**Never guess the session ID, and never use `ls -t` to pick the most-recent session file.** Parallel sessions and stale heartbeats mean "most recent" is frequently wrong. You MUST match by `project_path == $PWD`.
+**Your session ID is: `${CLAUDE_SESSION_ID}`**
 
-Run this resolver exactly as written:
+Claude Code substitutes this literal token with the actual UUID of the current session when it renders this skill. Use it directly — no guessing, no scanning, no mtime races.
+
+Assign it to a variable and read the session file:
+
+```bash
+SID='${CLAUDE_SESSION_ID}'
+SESSION_FILE=~/.claude/sessions/"$SID".json
+cat "$SESSION_FILE"
+```
+
+Extract these fields:
+- `session_id` — for the wrapup script call (should equal `$SID`)
+- `last_wrapup` (or `start` if first wrapup) — for the git log --since filter
+- `project_path` — for git commands
+- `branch` — for the report
+
+**Sanity check — MUST pass before proceeding past this step:**
+
+1. `$SID` must be a valid UUID, NOT the literal string `${CLAUDE_SESSION_ID}`. If Claude Code didn't substitute (older versions may not), the token will still be there verbatim — in that case, fall back to the resolver below.
+2. The session file MUST exist at `~/.claude/sessions/$SID.json`. If missing, tell the user "No session file for $SID" and stop.
+3. The file's `project_path` MUST equal `$PWD` (case-insensitive). If it doesn't, STOP and report the mismatch — something is inconsistent and wrapping up would mislabel the work.
+
+#### Fallback resolver (only if the substitution above didn't expand)
+
+If `$SID` literally contains `${CLAUDE_SESSION_ID}` (unexpanded), use this deterministic resolver. **Never use `ls -t` to pick the most-recent file** — parallel sessions and stale heartbeats make that unreliable.
 
 ```bash
 python3 -c '
@@ -51,18 +75,12 @@ print(best or "")
 '
 ```
 
-This prints the absolute path of the correct session file, or an empty line if none exists. Rules:
-- **Zero matches** → tell the user "No session being tracked for $PWD" and stop. Do NOT fall back to anything.
+Rules for the fallback:
+- **Zero matches** → tell the user "No session being tracked for $PWD" and stop.
 - **Exactly one match** → use it.
-- **Multiple matches** (parallel sessions in the same repo) → the resolver picks the one with the highest `last_seen`; that is always the right answer because only one session is actively being used in this terminal.
+- **Multiple matches** → the resolver picks the one with highest `last_seen`.
 
-Then `cat` the resolved file and extract:
-- `session_id` — for the wrapup script call
-- `last_wrapup` (or `start` if first wrapup) — for the git log --since filter
-- `project_path` — for git commands
-- `branch` — for the report
-
-**Sanity check before proceeding:** the extracted `project_path` MUST equal `$PWD` (case-insensitive). If it doesn't, STOP and report the mismatch — something is wrong with the session file.
+Then `cat` the resolved file and apply the same sanity check (`project_path == $PWD`).
 
 ### Step 2 — Read wrapper timing (if available)
 
