@@ -13,10 +13,10 @@
 # Residual queue is written via tempfile + rename so the file is never
 # truncated mid-iteration (interrupted run leaves either the original
 # or the new queue intact, never a half-written one).
+#
+# X-Track-Key + User-Agent + retry/backoff schedule live in cc_client.py.
 
 QUEUE_FILE="$HOME/.claude/wrapup-queue.jsonl"
-TRACK_KEY_FILE="$HOME/.claude/track-key"
-API_BASE="https://cc.meir.pro/api/wrapup_segments"
 
 if [ ! -f "$QUEUE_FILE" ]; then
     echo "no queue file"
@@ -29,68 +29,46 @@ if [ ! -s "$QUEUE_FILE" ]; then
     exit 0
 fi
 
-if [ ! -f "$TRACK_KEY_FILE" ]; then
-    echo "missing track key" >&2
-    exit 1
-fi
+QUEUE_FILE="$QUEUE_FILE" python3 <<'PYEOF'
+import json, os, sys
 
-QUEUE_FILE="$QUEUE_FILE" \
-API_BASE="$API_BASE" \
-TRACK_KEY_VAL=$(cat "$TRACK_KEY_FILE") \
-python3 <<'PYEOF'
-import json, os, sys, time
-import urllib.request, urllib.error, urllib.parse
+sys.path.insert(0, os.path.expanduser("~/.claude/hooks"))
+import cc_client
 
 queue_file = os.environ["QUEUE_FILE"]
-api_base = os.environ["API_BASE"]
-track_key = os.environ["TRACK_KEY_VAL"].strip()
 tmp_path = queue_file + ".tmp"
 
-if not track_key:
-    print("track key empty", file=sys.stderr)
+if not cc_client.has_key():
+    print("no track key (Keychain + legacy file both empty)", file=sys.stderr)
     sys.exit(1)
 
-# Cloudflare's bot signature blocks the default "Python-urllib/3.x" UA
-# with a 1010 / 403. Identify ourselves explicitly so CF lets us through.
-UA = "claude-flush-wrapup-queue/1 (+meirpro-dotfiles)"
-headers = {
-    "Content-Type": "application/json",
-    "X-Track-Key": track_key,
-    "User-Agent": UA,
-}
 
 def already_on_cc(session_id, segment_num):
     """Return True if CC already has a row for this (session, segment)."""
-    qs = urllib.parse.urlencode({
-        "session_id": session_id,
-        "segment_num": segment_num,
-    })
-    req = urllib.request.Request(
-        f"{api_base}?{qs}",
-        headers={"X-Track-Key": track_key, "User-Agent": UA},
-        method="GET",
+    result = cc_client.request(
+        "GET",
+        "/api/wrapup_segments",
+        query={"session_id": session_id, "segment_num": segment_num},
+        timeout=15,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = json.loads(resp.read().decode())
-        rows = body.get("wrapup_segments", [])
-        return len(rows) > 0
-    except Exception as e:
-        # GET failed — treat as unknown and surface to caller so the entry
-        # stays queued. We never assume "no" on a probe failure, that
-        # would risk double-posting on the next run.
-        raise RuntimeError(f"dedupe probe failed: {e}")
+    if not result["delivered"]:
+        # GET failed — never assume "no" on a probe failure; that would
+        # risk double-posting on the next run. Surface to caller so the
+        # entry stays queued.
+        raise RuntimeError(f"dedupe probe failed: {result['error']}")
+    body = result["body"] or {}
+    rows = body.get("wrapup_segments", []) if isinstance(body, dict) else []
+    return len(rows) > 0
+
 
 def post_payload(payload):
-    req = urllib.request.Request(
-        api_base,
-        data=json.dumps(payload).encode(),
-        headers=headers,
-        method="POST",
+    result = cc_client.request(
+        "POST", "/api/wrapup_segments",
+        body=payload, timeout=20,
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        if resp.status not in (200, 201):
-            raise RuntimeError(f"HTTP {resp.status}")
+    if not result["delivered"]:
+        raise RuntimeError(result["error"] or "POST failed")
+
 
 processed = 0
 posted = 0

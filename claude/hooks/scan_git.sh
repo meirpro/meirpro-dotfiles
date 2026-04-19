@@ -9,12 +9,19 @@
 set -eu
 
 STATE_FILE="$HOME/.claude/scan-state.json"
-TRACK_KEY_FILE="$HOME/.claude/track-key"
-API_URL="https://cc.meir.pro/api/commits/batch"
-PROJECTS_URL="https://cc.meir.pro/api/projects"
 
-[ -f "$TRACK_KEY_FILE" ] || { echo "missing track-key" >&2; exit 1; }
-TRACK_KEY=$(cat "$TRACK_KEY_FILE")
+# Confirm we have a track key reachable somewhere (Keychain or legacy
+# file). cc_client.has_key() checks both. If not, bail — same behavior
+# as the original "missing track-key" exit 1.
+if ! python3 -c "
+import sys, os
+sys.path.insert(0, os.path.expanduser('~/.claude/hooks'))
+import cc_client
+sys.exit(0 if cc_client.has_key() else 1)
+" 2>/dev/null; then
+    echo "missing track-key (Keychain + legacy file both empty)" >&2
+    exit 1
+fi
 
 scan_repo() {
     local repo_path="$1"
@@ -45,13 +52,12 @@ scan_repo() {
     fi
 
     git -C "$repo_path" log "$log_range" --format="%H%x00%aI%x00%an <%ae>%x00%s%x00%P" --no-merges 2>/dev/null | \
-    TRACK_KEY="$TRACK_KEY" API_URL="$API_URL" REPO_PATH="$repo_path" BRANCH="$branch" \
+    REPO_PATH="$repo_path" BRANCH="$branch" \
     python3 -c "$(cat <<'PYEOF'
 import json, os, sys, subprocess
-import urllib.request, urllib.error
+sys.path.insert(0, os.path.expanduser('~/.claude/hooks'))
+import cc_client
 
-TRACK_KEY = os.environ['TRACK_KEY']
-API_URL = os.environ['API_URL']
 REPO_PATH = os.environ['REPO_PATH']
 BRANCH = os.environ['BRANCH']
 
@@ -64,24 +70,16 @@ def flush(batch):
     global total_inserted, total_skipped
     if not batch:
         return
-    data = json.dumps({'commits': batch}).encode()
-    req = urllib.request.Request(
-        API_URL,
-        data=data,
-        headers={
-            'Content-Type': 'application/json',
-            'X-Track-Key': TRACK_KEY,
-            'User-Agent': 'cc-scan-git/1.0',
-        },
-        method='POST',
+    result = cc_client.request(
+        'POST', '/api/commits/batch',
+        body={'commits': batch}, timeout=30,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = json.loads(resp.read())
-            total_inserted += body.get('inserted', 0)
-            total_skipped += body.get('skipped', 0)
-    except Exception as e:
-        print(f'batch failed: {e}', file=sys.stderr)
+    if result['delivered']:
+        body = result['body'] or {}
+        total_inserted += body.get('inserted', 0) if isinstance(body, dict) else 0
+        total_skipped += body.get('skipped', 0) if isinstance(body, dict) else 0
+    else:
+        print(f"batch failed: {result.get('error')}", file=sys.stderr)
 
 for line in sys.stdin:
     line = line.strip()

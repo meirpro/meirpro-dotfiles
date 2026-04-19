@@ -2,9 +2,12 @@
 # cc-call — bash-friendly wrapper around cc_client.py for shell consumers.
 #
 # Usage:
-#   cc-call METHOD /api/path                  # body via stdin (or none)
+#   cc-call [--timeout SEC] [--retries N] METHOD /api/path  [body via stdin]
+#
+# Examples:
 #   cc-call POST /api/event/batch < body.json
-#   echo '{"x":1}' | cc-call POST /api/event
+#   echo '{"x":1}' | cc-call --timeout 2 --retries 1 POST /api/event
+#   cc-call GET /api/projects
 #
 # Output:
 #   - Response body to stdout (raw text, or JSON if the response was JSON).
@@ -22,11 +25,35 @@
 
 set -e
 
-METHOD="$1"
-URL_PATH="$2"
+METHOD=""
+URL_PATH=""
+TIMEOUT=""
+RETRIES=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --timeout) TIMEOUT="$2"; shift 2 ;;
+        --retries) RETRIES="$2"; shift 2 ;;
+        --*)
+            echo "cc-call: unknown flag: $1" >&2
+            exit 4
+            ;;
+        *)
+            if [ -z "$METHOD" ]; then
+                METHOD="$1"
+            elif [ -z "$URL_PATH" ]; then
+                URL_PATH="$1"
+            else
+                echo "cc-call: unexpected positional arg: $1" >&2
+                exit 4
+            fi
+            shift
+            ;;
+    esac
+done
 
 if [ -z "$METHOD" ] || [ -z "$URL_PATH" ]; then
-    echo "usage: cc-call METHOD /api/path  [body via stdin]" >&2
+    echo "usage: cc-call [--timeout SEC] [--retries N] METHOD /api/path  [body via stdin]" >&2
     exit 4
 fi
 
@@ -37,7 +64,12 @@ if [ ! -t 0 ]; then
     BODY=$(cat)
 fi
 
-CC_METHOD="$METHOD" CC_PATH="$URL_PATH" CC_BODY="$BODY" python3 - <<'PY'
+CC_METHOD="$METHOD" \
+CC_PATH="$URL_PATH" \
+CC_BODY="$BODY" \
+CC_TIMEOUT="$TIMEOUT" \
+CC_RETRIES="$RETRIES" \
+python3 - <<'PY'
 import json, os, sys
 
 sys.path.insert(0, os.path.expanduser("~/.claude/hooks"))
@@ -54,7 +86,23 @@ if body_raw:
     except Exception:
         body = body_raw
 
-result = cc_client.request(method, path, body=body)
+kwargs = {"body": body}
+timeout_env = os.environ.get("CC_TIMEOUT", "")
+if timeout_env:
+    try:
+        kwargs["timeout"] = int(timeout_env)
+    except ValueError:
+        sys.stderr.write(f"cc-call: invalid --timeout: {timeout_env}\n")
+        sys.exit(4)
+retries_env = os.environ.get("CC_RETRIES", "")
+if retries_env:
+    try:
+        kwargs["retries"] = int(retries_env)
+    except ValueError:
+        sys.stderr.write(f"cc-call: invalid --retries: {retries_env}\n")
+        sys.exit(4)
+
+result = cc_client.request(method, path, **kwargs)
 
 resp_body = result.get("body")
 if resp_body is not None:
