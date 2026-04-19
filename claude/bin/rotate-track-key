@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+"""rotate-track-key — atomically rotate the cc.meir.pro X-Track-Key.
+
+Generates a fresh 32-byte hex secret and:
+  1. Stores it in macOS Keychain (service: claude-track-key, -A -U).
+     -A grants access to all apps on this user account, no per-app
+     prompts. The threat model this defends against is "tool reads
+     the file and dumps it to its caller" — which Keychain blocks
+     because Keychain reads require an explicit `security` call.
+  2. Pushes it to Cloudflare Workers as the TRACK_KEY secret on the
+     command-center deployment via `wrangler secret put` (stdin pipe,
+     never argv).
+  3. Polls /api/projects with cc-call until a successful 2xx confirms
+     CF edge propagation has reached the verifying request path.
+  4. Deletes the legacy ~/.claude/track-key plaintext file.
+
+The new key never appears in stdout, stderr, argv outside step (1),
+shell history, or any persistent file. The brief window between
+Keychain write and CF propagation is covered by the per-script queues
+(track_event, wrapup) that already catch transient delivery failures.
+
+Usage:  rotate-track-key [--cc-repo PATH] [--dry-run]
+
+Exit codes:
+  0  rotation complete; legacy file deleted; new key in Keychain + Wrangler
+  1  generation succeeded but Wrangler push failed (key NOT in production)
+  2  Wrangler propagation did not verify within the timeout (key MAY be live)
+  3  Keychain write failed
+  4  setup error (cc-repo missing, wrangler unavailable, etc.)
+"""
+import argparse
+import os
+import secrets
+import subprocess
+import sys
+import time
+
+KEYCHAIN_SERVICE = "claude-track-key"
+LEGACY_KEY_FILE = os.path.expanduser("~/.claude/track-key")
+DEFAULT_CC_REPO = os.path.expanduser("~/Documents/GitHub/command-center")
+WRANGLER_SECRET_NAME = "TRACK_KEY"
+VERIFY_PATH = "/api/projects"
+VERIFY_TIMEOUT_S = 60
+VERIFY_INTERVAL_S = 2
+
+
+def info(msg: str) -> None:
+    print(f"  [rotate] {msg}", flush=True)
+
+
+def err(msg: str) -> None:
+    print(f"  [rotate] ERROR: {msg}", file=sys.stderr, flush=True)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Rotate cc.meir.pro X-Track-Key.")
+    parser.add_argument("--cc-repo", default=DEFAULT_CC_REPO,
+                        help="path to command-center repo (default: %(default)s)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="show what would happen without changing anything")
+    args = parser.parse_args()
+
+    if not os.path.isdir(os.path.join(args.cc_repo, ".git")):
+        err(f"cc repo not found at {args.cc_repo}")
+        return 4
+
+    wrangler_toml = os.path.join(args.cc_repo, "wrangler.toml")
+    if not os.path.isfile(wrangler_toml):
+        err(f"no wrangler.toml at {wrangler_toml}")
+        return 4
+
+    # Make sure wrangler exists and we're authed.
+    try:
+        subprocess.run(
+            ["wrangler", "whoami"],
+            capture_output=True, text=True, timeout=15, check=True,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        err("wrangler binary missing or unresponsive")
+        return 4
+    except subprocess.CalledProcessError as e:
+        err(f"wrangler not authenticated: {e.stderr.strip() or e.stdout.strip()}")
+        return 4
+
+    if args.dry_run:
+        info("dry-run: would generate a 32-byte key, write Keychain, "
+             f"push wrangler secret {WRANGLER_SECRET_NAME}, verify, "
+             f"delete {LEGACY_KEY_FILE}")
+        return 0
+
+    user = os.environ.get("USER") or subprocess.run(
+        ["whoami"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    # 1. Generate.
+    new_key = secrets.token_hex(32)  # 64 hex chars / 256 bits
+    info(f"generated new {len(new_key)}-char key (length matches existing format)")
+
+    # 2. Push to Keychain.
+    try:
+        subprocess.run(
+            [
+                "security", "add-generic-password",
+                "-a", user,
+                "-s", KEYCHAIN_SERVICE,
+                "-A",                # accessible to all apps on this user account
+                "-U",                # update if entry exists
+                "-w", new_key,       # value (in argv — brief window only)
+            ],
+            check=True, capture_output=True, text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        err(f"Keychain write failed: {e.stderr.strip() or e.stdout.strip()}")
+        # Best-effort: don't leave half-rotated state.
+        return 3
+    info(f"Keychain entry written (service={KEYCHAIN_SERVICE}, account={user})")
+
+    # 3. Push to Wrangler via stdin (never argv).
+    try:
+        result = subprocess.run(
+            ["wrangler", "secret", "put", WRANGLER_SECRET_NAME],
+            input=new_key,
+            cwd=args.cc_repo,
+            capture_output=True, text=True,
+            timeout=60, check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        err("wrangler secret put failed — Keychain has new key but server "
+            "still has the old one. Run again or restore from Keychain.")
+        err((e.stderr or e.stdout).strip()[:500])
+        return 1
+    info("Wrangler secret push acknowledged; waiting for CF edge propagation")
+
+    # 4. Verify by polling /api/projects via cc_client. Once we see a 2xx,
+    #    the new key is live on the edge that handled this verification.
+    sys.path.insert(0, os.path.expanduser("~/.claude/hooks"))
+    import cc_client  # noqa: E402
+
+    deadline = time.time() + VERIFY_TIMEOUT_S
+    last_err = None
+    while time.time() < deadline:
+        result = cc_client.request("GET", VERIFY_PATH, timeout=10, retries=1)
+        if result["delivered"]:
+            info(f"verified ({VERIFY_PATH} returned {result['status']})")
+            break
+        last_err = result.get("error") or "unknown"
+        time.sleep(VERIFY_INTERVAL_S)
+    else:
+        err(f"propagation did not verify within {VERIFY_TIMEOUT_S}s "
+            f"(last error: {last_err}). Key is in Keychain + Wrangler "
+            f"but cc-call still can't reach a 2xx — investigate.")
+        return 2
+
+    # 5. Delete legacy file. Keychain is now the only home for the secret.
+    if os.path.isfile(LEGACY_KEY_FILE):
+        os.remove(LEGACY_KEY_FILE)
+        info(f"deleted legacy file {LEGACY_KEY_FILE}")
+    else:
+        info(f"legacy file {LEGACY_KEY_FILE} was already absent")
+
+    info("rotation complete")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
