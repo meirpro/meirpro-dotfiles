@@ -50,9 +50,13 @@ if not track_key:
     print("track key empty", file=sys.stderr)
     sys.exit(1)
 
+# Cloudflare's bot signature blocks the default "Python-urllib/3.x" UA
+# with a 1010 / 403. Identify ourselves explicitly so CF lets us through.
+UA = "claude-flush-wrapup-queue/1 (+meirpro-dotfiles)"
 headers = {
     "Content-Type": "application/json",
     "X-Track-Key": track_key,
+    "User-Agent": UA,
 }
 
 def already_on_cc(session_id, segment_num):
@@ -63,7 +67,7 @@ def already_on_cc(session_id, segment_num):
     })
     req = urllib.request.Request(
         f"{api_base}?{qs}",
-        headers={"X-Track-Key": track_key},
+        headers={"X-Track-Key": track_key, "User-Agent": UA},
         method="GET",
     )
     try:
