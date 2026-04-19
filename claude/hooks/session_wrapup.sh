@@ -88,20 +88,22 @@ TIME_LOG_PATH="$TIME_LOG" \
 SESSIONS_DIR_PATH="$SESSIONS_DIR" \
 NOW_ISO="$NOW" \
 BRANCH_NAME="$BRANCH" \
-TRACK_KEY_FILE="$HOME/.claude/track-key" \
 WRAPUP_QUEUE="$HOME/.claude/wrapup-queue.jsonl" \
 SUMMARY_ARG="$SUMMARY" \
 python3 <<'PYEOF'
-import json, os, sys, subprocess, glob, time
+import json, os, sys, subprocess, glob
 from datetime import datetime, timezone
-import urllib.request, urllib.error
+
+# cc_client.py owns the X-Track-Key (Keychain or legacy file fallback),
+# the User-Agent (CF won't 1010 us), and the retry/backoff schedule.
+sys.path.insert(0, os.path.expanduser('~/.claude/hooks'))
+import cc_client
 
 session_file = os.environ['SESSION_FILE_PATH']
 time_log = os.environ['TIME_LOG_PATH']
 sessions_dir = os.environ['SESSIONS_DIR_PATH']
 NOW = os.environ['NOW_ISO']
 BRANCH = os.environ['BRANCH_NAME']
-track_key_file = os.environ['TRACK_KEY_FILE']
 queue_file = os.environ['WRAPUP_QUEUE']
 summary = os.environ['SUMMARY_ARG']
 
@@ -330,56 +332,24 @@ cc_delivered = False
 cc_attempts = 0
 cc_last_error = None
 
-track_key = ''
-if os.path.isfile(track_key_file):
-    try:
-        with open(track_key_file) as f:
-            track_key = f.read().strip()
-    except Exception:
-        track_key = ''
-
 # Only attempt POST when we have everything required.
-if track_key and payload['session_id'] and payload['start'] and payload['end']:
-    backoffs = [0.5, 1.5, 4.0]
-    for attempt_idx in range(3):
-        cc_attempts += 1
-        try:
-            req = urllib.request.Request(
-                'https://cc.meir.pro/api/wrapup_segments',
-                data=json.dumps(payload).encode(),
-                headers={
-                    'Content-Type': 'application/json',
-                    'X-Track-Key': track_key,
-                    # Cloudflare's bot signature 403s the default
-                    # "Python-urllib/3.x" UA (CF error 1010). Identify
-                    # ourselves explicitly so the request gets through.
-                    'User-Agent': 'claude-session-wrapup/1 (+meirpro-dotfiles)',
-                },
-                method='POST',
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                if resp.status in (200, 201):
-                    cc_delivered = True
-                    break
-                cc_last_error = f'HTTP {resp.status}'
-        except urllib.error.HTTPError as ex:
-            cc_last_error = f'HTTP {ex.code}'
-            # 4xx other than 408/429 won't get better with retries
-            if 400 <= ex.code < 500 and ex.code not in (408, 429):
-                break
-        except Exception as ex:
-            cc_last_error = f'{type(ex).__name__}: {ex}'
-        if attempt_idx < len(backoffs) - 1 and not cc_delivered:
-            time.sleep(backoffs[attempt_idx])
+if payload['session_id'] and payload['start'] and payload['end']:
+    result = cc_client.request(
+        'POST', '/api/wrapup_segments',
+        body=payload, timeout=15, retries=3,
+    )
+    cc_delivered = result['delivered']
+    cc_attempts = result['attempts']
+    cc_last_error = result['error']
 
-    if not cc_delivered:
+    if not cc_delivered and cc_last_error != 'no_track_key':
+        # Network / 5xx / non-retryable 4xx after the retry budget —
+        # park the payload for flush_wrapup_queue.sh.
         try:
             with open(queue_file, 'a') as qf:
                 qf.write(json.dumps(payload) + '\n')
         except Exception as ex:
             cc_last_error = f'queue-write-failed: {ex}'
-elif not track_key:
-    cc_last_error = 'no_track_key'
 
 queued_depth = 0
 try:
