@@ -350,6 +350,10 @@ if track_key and payload['session_id'] and payload['start'] and payload['end']:
                 headers={
                     'Content-Type': 'application/json',
                     'X-Track-Key': track_key,
+                    # Cloudflare's bot signature 403s the default
+                    # "Python-urllib/3.x" UA (CF error 1010). Identify
+                    # ourselves explicitly so the request gets through.
+                    'User-Agent': 'claude-session-wrapup/1 (+meirpro-dotfiles)',
                 },
                 method='POST',
             )
