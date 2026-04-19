@@ -1,0 +1,79 @@
+#!/bin/bash
+# cc-call — bash-friendly wrapper around cc_client.py for shell consumers.
+#
+# Usage:
+#   cc-call METHOD /api/path                  # body via stdin (or none)
+#   cc-call POST /api/event/batch < body.json
+#   echo '{"x":1}' | cc-call POST /api/event
+#
+# Output:
+#   - Response body to stdout (raw text, or JSON if the response was JSON).
+#   - Short error tag to stderr when not delivered.
+#
+# Exit codes:
+#   0  delivered (2xx)
+#   1  non-retryable 4xx
+#   2  5xx or network failure (after retries)
+#   3  no track key available
+#   4  bad invocation
+#
+# The track key is loaded by cc_client.py (Keychain first, file
+# fallback). It is never placed in argv, env, or output of this script.
+
+set -e
+
+METHOD="$1"
+URL_PATH="$2"
+
+if [ -z "$METHOD" ] || [ -z "$URL_PATH" ]; then
+    echo "usage: cc-call METHOD /api/path  [body via stdin]" >&2
+    exit 4
+fi
+
+# Read body from stdin only when stdin is redirected (pipe / heredoc /
+# file). When run interactively we don't block waiting for keyboard input.
+BODY=""
+if [ ! -t 0 ]; then
+    BODY=$(cat)
+fi
+
+CC_METHOD="$METHOD" CC_PATH="$URL_PATH" CC_BODY="$BODY" python3 - <<'PY'
+import json, os, sys
+
+sys.path.insert(0, os.path.expanduser("~/.claude/hooks"))
+import cc_client
+
+method = os.environ["CC_METHOD"]
+path = os.environ["CC_PATH"]
+body_raw = os.environ.get("CC_BODY", "")
+
+body = None
+if body_raw:
+    try:
+        body = json.loads(body_raw)
+    except Exception:
+        body = body_raw
+
+result = cc_client.request(method, path, body=body)
+
+resp_body = result.get("body")
+if resp_body is not None:
+    if isinstance(resp_body, (dict, list)):
+        sys.stdout.write(json.dumps(resp_body))
+    else:
+        sys.stdout.write(str(resp_body))
+    sys.stdout.write("\n")
+
+err = result.get("error")
+if err:
+    sys.stderr.write(f"cc-call: {err}\n")
+
+if result.get("delivered"):
+    sys.exit(0)
+if err == "no_track_key":
+    sys.exit(3)
+status = result.get("status")
+if status is not None and 400 <= status < 500:
+    sys.exit(1)
+sys.exit(2)
+PY
