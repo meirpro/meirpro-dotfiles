@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """rotate-track-key — atomically rotate the cc.meir.pro X-Track-Key.
 
+See claude/hooks/KEY_ROTATION.md for the operator-facing doc covering
+when to rotate, how to verify, and how to recover from each failure
+mode. This docstring is the implementation reference.
+
 Generates a fresh 32-byte hex secret and:
   1. Stores it in macOS Keychain (service: claude-track-key, -A -U).
      -A grants access to all apps on this user account, no per-app
