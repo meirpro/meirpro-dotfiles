@@ -74,20 +74,46 @@ fi
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 BRANCH="$(git branch --show-current 2>/dev/null || echo n/a)"
 
-python3 -c "
-import json,sys,subprocess,os,glob
-from datetime import datetime,timezone
+# Single Python block:
+#   1. Read session file, normalize, compute segment metrics.
+#   2. Append entry to ~/.claude/time-log.jsonl.
+#   3. Update session file (keep alive, reset segment counter).
+#   4. Build CC payload from in-memory data + telemetry.
+#   5. POST to cc.meir.pro with 3 retries (0.5s/1.5s/4s backoff). On
+#      total failure, append payload to ~/.claude/wrapup-queue.jsonl.
+#   6. Print one JSON report including cc_delivered + queued_depth so
+#      callers can tell delivered-to-CC from queued-locally.
+SESSION_FILE_PATH="$SESSION_FILE" \
+TIME_LOG_PATH="$TIME_LOG" \
+SESSIONS_DIR_PATH="$SESSIONS_DIR" \
+NOW_ISO="$NOW" \
+BRANCH_NAME="$BRANCH" \
+TRACK_KEY_FILE="$HOME/.claude/track-key" \
+WRAPUP_QUEUE="$HOME/.claude/wrapup-queue.jsonl" \
+SUMMARY_ARG="$SUMMARY" \
+python3 <<'PYEOF'
+import json, os, sys, subprocess, glob, time
+from datetime import datetime, timezone
+import urllib.request, urllib.error
+
+session_file = os.environ['SESSION_FILE_PATH']
+time_log = os.environ['TIME_LOG_PATH']
+sessions_dir = os.environ['SESSIONS_DIR_PATH']
+NOW = os.environ['NOW_ISO']
+BRANCH = os.environ['BRANCH_NAME']
+track_key_file = os.environ['TRACK_KEY_FILE']
+queue_file = os.environ['WRAPUP_QUEUE']
+summary = os.environ['SUMMARY_ARG']
 
 def p(s):
-    return datetime.strptime(s,'%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+    return datetime.strptime(s, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
 
 def ts_to_iso(ms):
-    return datetime.fromtimestamp(ms/1000,tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
-summary = sys.argv[1]
-now = p('$NOW')
+now = p(NOW)
 
-with open('$SESSION_FILE') as f:
+with open(session_file) as f:
     data = json.load(f)
 
 # --- Normalize across session file formats ---
@@ -112,6 +138,15 @@ elif 'startedAt' in data:
 else:
     print(json.dumps({'error': 'Unrecognized session file format'}))
     sys.exit(1)
+
+# Heal the upstream "session file clobbered to ?" bug at the wrapup
+# layer: when the session record's project_path is the "?" sentinel
+# (or empty), fall back to the actual cwd so CC's resolveProject can
+# attribute this segment instead of writing project_id=null.
+# Documented in claude/hooks/KNOWN_ISSUES.md (last section).
+if project_path in ('?', '', None):
+    project_path = os.getcwd()
+    project = os.path.basename(project_path) or project
 
 # Segment wall time (since last wrapup or session start)
 segment_start = last_wrapup
@@ -196,8 +231,8 @@ wc = wrapup_count + 1
 # Detect parallel agents
 pi = []
 start_dt = p(start_iso)
-for path in glob.glob(os.path.join('$SESSIONS_DIR', '*.json')):
-    if os.path.abspath(path) == os.path.abspath('$SESSION_FILE'):
+for path in glob.glob(os.path.join(sessions_dir, '*.json')):
+    if os.path.abspath(path) == os.path.abspath(session_file):
         continue
     try:
         with open(path) as f:
@@ -219,14 +254,14 @@ for path in glob.glob(os.path.join('$SESSIONS_DIR', '*.json')):
 
 # --- Write time log entry ---
 e = {
-    'date': '$NOW'[:10],
+    'date': NOW[:10],
     'project': project,
     'project_path': project_path,
-    'branch': '$BRANCH',
+    'branch': BRANCH,
     'session_id': sid,
     'segment': wc,
     'start': segment_start,
-    'end': '$NOW',
+    'end': NOW,
     'duration_min': active_min,
     'wall_clock_min': wm,
     'summary': summary,
@@ -236,14 +271,14 @@ e = {
 if pi:
     e['parallel_with'] = pi
 
-with open('$TIME_LOG', 'a') as f:
+with open(time_log, 'a') as f:
     f.write(json.dumps(e) + '\n')
 
 # --- Update session file (keep alive, reset segment) ---
-data['last_wrapup'] = '$NOW'
+data['last_wrapup'] = NOW
 data['wrapup_count'] = wc
 data['active_minutes'] = 0  # reset for next segment
-data['last_seen'] = '$NOW'
+data['last_seen'] = NOW
 # Ensure enriched fields exist for future heartbeats
 if 'start' not in data and 'startedAt' in data:
     data['start'] = start_iso
@@ -251,8 +286,104 @@ if 'start' not in data and 'startedAt' in data:
     data['project'] = project
     data['project_path'] = project_path
 
-with open('$SESSION_FILE', 'w') as f:
+with open(session_file, 'w') as f:
     json.dump(data, f, indent=2)
+
+# --- Push wrapup segment to CC API with retry ---
+telemetry = data.get('telemetry', {}) or {}
+live = telemetry.get('live', {}) or {}
+totals = telemetry.get('totals', {}) or {}
+
+payload = {
+    'session_id': sid,
+    'segment_num': wc,
+    'start': segment_start,
+    'end': NOW,
+    'duration_ms': (active_min or 0) * 60 * 1000,
+    'wall_ms': (wm or 0) * 60 * 1000,
+    'summary': summary,
+    'files_changed': fc,
+    'commits': commits,
+    'parallel_with': pi,
+    'cwd': project_path,
+    'branch': BRANCH,
+    'cost_usd': live.get('cost_usd'),
+    'api_duration_ms': live.get('api_duration_ms'),
+    'wall_duration_ms': live.get('wall_duration_ms'),
+    'lines_added': live.get('lines_added'),
+    'lines_removed': live.get('lines_removed'),
+    'tokens_in': live.get('tokens_in'),
+    'tokens_out': live.get('tokens_out'),
+    'model_id': live.get('model_id'),
+    'model_display': live.get('model_display'),
+    'claude_code_version': live.get('claude_code_version'),
+    'context_window_size': live.get('context_window_size'),
+    'context_used_percentage': live.get('context_used_percentage'),
+    'rate_limit_5h_pct': live.get('rate_limit_5h_pct'),
+    'rate_limit_7d_pct': live.get('rate_limit_7d_pct'),
+    'sub_agent_count': totals.get('sub_agent_count', 0),
+    'sub_agent_total_ms': totals.get('sub_agent_total_ms', 0),
+    'parallelism_factor': totals.get('parallelism_factor'),
+}
+
+cc_delivered = False
+cc_attempts = 0
+cc_last_error = None
+
+track_key = ''
+if os.path.isfile(track_key_file):
+    try:
+        with open(track_key_file) as f:
+            track_key = f.read().strip()
+    except Exception:
+        track_key = ''
+
+# Only attempt POST when we have everything required.
+if track_key and payload['session_id'] and payload['start'] and payload['end']:
+    backoffs = [0.5, 1.5, 4.0]
+    for attempt_idx in range(3):
+        cc_attempts += 1
+        try:
+            req = urllib.request.Request(
+                'https://cc.meir.pro/api/wrapup_segments',
+                data=json.dumps(payload).encode(),
+                headers={
+                    'Content-Type': 'application/json',
+                    'X-Track-Key': track_key,
+                },
+                method='POST',
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status in (200, 201):
+                    cc_delivered = True
+                    break
+                cc_last_error = f'HTTP {resp.status}'
+        except urllib.error.HTTPError as ex:
+            cc_last_error = f'HTTP {ex.code}'
+            # 4xx other than 408/429 won't get better with retries
+            if 400 <= ex.code < 500 and ex.code not in (408, 429):
+                break
+        except Exception as ex:
+            cc_last_error = f'{type(ex).__name__}: {ex}'
+        if attempt_idx < len(backoffs) - 1 and not cc_delivered:
+            time.sleep(backoffs[attempt_idx])
+
+    if not cc_delivered:
+        try:
+            with open(queue_file, 'a') as qf:
+                qf.write(json.dumps(payload) + '\n')
+        except Exception as ex:
+            cc_last_error = f'queue-write-failed: {ex}'
+elif not track_key:
+    cc_last_error = 'no_track_key'
+
+queued_depth = 0
+try:
+    if os.path.isfile(queue_file):
+        with open(queue_file) as qf:
+            queued_depth = sum(1 for ln in qf if ln.strip())
+except Exception:
+    pass
 
 # --- Output report ---
 h, m = divmod(active_min, 60)
@@ -260,9 +391,9 @@ dd = f'{h}h {m}m' if h else f'{m}m'
 wh, wr = divmod(wm, 60)
 wd = f'{wh}h {wr}m' if wh else f'{wr}m'
 
-r = {
+report = {
     'project': project,
-    'branch': '$BRANCH',
+    'branch': BRANCH,
     'session_id': sid,
     'segment': wc,
     'active_time': dd,
@@ -270,129 +401,23 @@ r = {
     'active_min': active_min,
     'wall_min': wm,
     'start': segment_start,
-    'end': '$NOW',
+    'end': NOW,
     'commits': len(commits),
     'files_changed': fc,
     'summary': summary,
-    'logged_to': '$TIME_LOG',
+    'logged_to': time_log,
+    'cc_delivered': cc_delivered,
+    'queued_depth': queued_depth,
 }
+if cc_attempts:
+    report['cc_attempts'] = cc_attempts
+if not cc_delivered and cc_last_error:
+    report['cc_error'] = cc_last_error
 if pi:
-    r['parallel_with'] = pi
-    r['parallel_count'] = len(pi)
+    report['parallel_with'] = pi
+    report['parallel_count'] = len(pi)
 
-print(json.dumps(r, indent=2))
-" "$SUMMARY"
-
-# === Push wrapup segment to CC API (best-effort) ===
-TRACK_KEY_FILE="$HOME/.claude/track-key"
-WRAPUP_QUEUE="$HOME/.claude/wrapup-queue.jsonl"
-TIME_LOG_FILE="$HOME/.claude/time-log.jsonl"
-
-if [ -f "$TRACK_KEY_FILE" ] && [ -f "$SESSION_FILE" ]; then
-    SESSION_FILE_PATH="$SESSION_FILE" \
-    TIME_LOG_PATH="$TIME_LOG_FILE" \
-    WRAPUP_QUEUE_PATH="$WRAPUP_QUEUE" \
-    TRACK_KEY_VAL=$(cat "$TRACK_KEY_FILE") \
-    python3 - <<'PYEOF' 2>/dev/null || true
-import json, os, sys
-import urllib.request, urllib.error
-
-session_file = os.environ.get("SESSION_FILE_PATH")
-time_log = os.environ.get("TIME_LOG_PATH")
-queue_file = os.environ.get("WRAPUP_QUEUE_PATH")
-track_key = os.environ.get("TRACK_KEY_VAL", "")
-
-if not (session_file and time_log and track_key):
-    sys.exit(0)
-
-# Load session JSON for telemetry block
-try:
-    with open(session_file) as f:
-        session = json.load(f)
-except Exception:
-    sys.exit(0)
-
-telemetry = session.get("telemetry", {}) or {}
-live = telemetry.get("live", {}) or {}
-totals = telemetry.get("totals", {}) or {}
-
-# Read the LAST row from time-log.jsonl (just appended by the wrapup logic above)
-last_row = None
-try:
-    with open(time_log) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                last_row = line
-    if not last_row:
-        sys.exit(0)
-    last_data = json.loads(last_row)
-except Exception:
-    sys.exit(0)
-
-# Build the API payload from the time-log row + telemetry
-payload = {
-    "session_id": last_data.get("session_id"),
-    "segment_num": last_data.get("segment", 1),
-    "start": last_data.get("start"),
-    "end": last_data.get("end"),
-    "duration_ms": (last_data.get("duration_min") or 0) * 60 * 1000,
-    "wall_ms": (last_data.get("wall_clock_min") or 0) * 60 * 1000,
-    "summary": last_data.get("summary"),
-    "files_changed": last_data.get("files_changed", 0),
-    "commits": last_data.get("commits", []),
-    "parallel_with": last_data.get("parallel_with", []),
-    "cwd": last_data.get("project_path"),
-    "branch": last_data.get("branch"),
-    # Live telemetry from statusline
-    "cost_usd": live.get("cost_usd"),
-    "api_duration_ms": live.get("api_duration_ms"),
-    "wall_duration_ms": live.get("wall_duration_ms"),
-    "lines_added": live.get("lines_added"),
-    "lines_removed": live.get("lines_removed"),
-    "tokens_in": live.get("tokens_in"),
-    "tokens_out": live.get("tokens_out"),
-    "model_id": live.get("model_id"),
-    "model_display": live.get("model_display"),
-    "claude_code_version": live.get("claude_code_version"),
-    "context_window_size": live.get("context_window_size"),
-    "context_used_percentage": live.get("context_used_percentage"),
-    "rate_limit_5h_pct": live.get("rate_limit_5h_pct"),
-    "rate_limit_7d_pct": live.get("rate_limit_7d_pct"),
-    # Sub-agent telemetry
-    "sub_agent_count": totals.get("sub_agent_count", 0),
-    "sub_agent_total_ms": totals.get("sub_agent_total_ms", 0),
-    "parallelism_factor": totals.get("parallelism_factor"),
-}
-
-# Drop if missing required fields
-if not payload.get("session_id") or not payload.get("start") or not payload.get("end"):
-    sys.exit(0)
-
-# POST
-try:
-    req = urllib.request.Request(
-        "https://cc.meir.pro/api/wrapup_segments",
-        data=json.dumps(payload).encode(),
-        headers={
-            "Content-Type": "application/json",
-            "X-Track-Key": track_key,
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        if resp.status not in (200, 201):
-            raise Exception(f"HTTP {resp.status}")
-except Exception:
-    # Queue for later flush
-    try:
-        with open(queue_file, "a") as qf:
-            qf.write(json.dumps(payload) + "\n")
-    except Exception:
-        pass
-
-sys.exit(0)
+print(json.dumps(report, indent=2))
 PYEOF
-fi
 
 exit 0
