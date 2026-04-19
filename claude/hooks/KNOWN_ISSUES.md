@@ -316,3 +316,219 @@ Moving skill logic into scripts (mitigation #4 above) is a cheap
 workaround for individual skills as they're fixed, but doesn't solve
 the general problem. The general solution needs to live in Claude Code's
 skill-loading layer.
+
+---
+
+## Wrapup queue grows indefinitely — CC POST fallback is being written to, never drained
+
+### Symptom
+
+`~/.claude/wrapup-queue.jsonl` accumulates wrapup payloads that failed to
+POST to `cc.meir.pro/api/wrapup_segments`. Local time-log entries
+(`~/.claude/time-log.jsonl`) continue to land fine, but CC's
+`wrapup_segments` table misses entries for days at a time. The
+`try/except` block in `session_wrapup.sh` silently appends to the queue
+file on any POST failure, with no visible signal to the user that the
+fallback was triggered.
+
+### Observed case (2026-04-19)
+
+- User ran `/wrapup` in session `2f2bf82e-d33b-468b-ac4c-f1a04a89871c`.
+- The wrapup script wrote the entry to `~/.claude/time-log.jsonl`
+  (segment 1, 11m active, 1h 5m wall) and printed success JSON.
+- CC's `wrapup_segments` table showed the most-recent segment was
+  `id=9` from `2026-04-14T20:55:33Z` — five days before. The just-logged
+  segment was absent.
+- Inspecting `~/.claude/wrapup-queue.jsonl` revealed **51 queued
+  payloads** dating back to 2026-04-14, including the just-written one
+  at the tail.
+- Manual retry of the latest queued payload via `curl -X POST …
+  /api/wrapup_segments` succeeded cleanly (returned `{"id":10,
+  "commits_linked":0}`), proving the API accepts the payload shape and
+  the auth header. The POST simply never ran during the original
+  `/wrapup` call, OR it ran and failed for a transient reason that no
+  retry ever addressed.
+- User had to manually trim the queue to prevent double-post on next
+  flush.
+
+### Impact
+
+- CC's time-tracking analytics are systematically incomplete. Weekly
+  rollups, per-project stats, and client monthly stats all undercount
+  by whatever work sits in the queue. For the user in the observed
+  case, five days of segments were missing.
+- The offline fallback is behaving as a black hole — it catches
+  failures but nothing drains it. The `flush_tracking_queue.sh`
+  pattern that exists for `/api/event` ingestion (documented in
+  `command-center/CLAUDE.md` → Offline fallback section) does not
+  appear to have an equivalent for `/api/wrapup_segments`.
+- Users who trust the `/wrapup` success output are unaware their
+  data isn't on CC — there's no indicator distinguishing
+  "delivered to CC" from "queued locally for retry."
+
+### Hypothesis — mechanism
+
+Reading `session_wrapup.sh`, the CC POST is wrapped in:
+
+```python
+try:
+    req = urllib.request.Request(
+        "https://cc.meir.pro/api/wrapup_segments",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json",
+                 "X-Track-Key": track_key},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        if resp.status not in (200, 201):
+            raise Exception(f"HTTP {resp.status}")
+except Exception:
+    # Queue for later flush
+    with open(queue_file, "a") as qf:
+        qf.write(json.dumps(payload) + "\n")
+```
+
+The `except Exception:` swallows every failure mode: network error,
+DNS failure, TLS handshake failure, CF 5xx, 400 validation error, auth
+error, timeout. None of them get logged, retried in-process, or
+surfaced to the user. The queue accumulates.
+
+**Plausible failure triggers during original writes:**
+
+1. **Concurrent track-key file read.** Multiple parallel sessions
+   wrapping up simultaneously may have raced on reading
+   `~/.claude/track-key`. If one read returned empty for a
+   millisecond, the POST would 401 and be caught.
+2. **Cloudflare Worker cold start + 15s timeout.** A rare CF cold
+   start plus some work builds could push past 15s; urllib times out,
+   payload queues.
+3. **The payload itself was valid.** Manual retry of the same JSON
+   succeeded with an id=10 response, so the queue isn't blocked by
+   systemic bad-payload rejection. Failures are transient.
+
+### Mitigations — ideas, not yet implemented
+
+1. **Add a `flush_wrapup_queue.sh`** script modeled on
+   `flush_tracking_queue.sh`. POSTs queued payloads in
+   `/api/event/batch`-style chunks (CC already accepts single-record
+   POSTs to `/api/wrapup_segments`; batch support would be a new CC
+   endpoint). Cron it hourly, or hook it to SessionStart, or run it
+   opportunistically at the start of each `/wrapup`.
+2. **Surface queue depth in the wrapup output.** Before exiting, the
+   script should print `queued_for_retry: N` if the queue file has
+   unflushed entries. Turns a silent black hole into a visible
+   backlog.
+3. **Distinguish delivered vs queued in the success JSON.** Add
+   `"cc_delivered": true|false` to the output so the user/agent sees
+   it. Current output always reads like CC was notified.
+4. **Retry in-process before queueing.** 3 attempts with exponential
+   backoff (0.5s, 1.5s, 4s) before falling back to the queue.
+   Eliminates the transient-failure class of queue growth.
+5. **Dedupe on flush.** When the flush script runs, it should check
+   for existing `session_id + segment_num` rows on CC before
+   re-posting, so manual retries (like the one in the observed case)
+   don't cause double-logs when the queue eventually drains.
+
+### Related files
+
+- `~/.claude/hooks/session_wrapup.sh` — contains the failing POST +
+  silent queue-append
+- `~/.claude/wrapup-queue.jsonl` — the accumulating queue file
+- `~/.claude/hooks/flush_tracking_queue.sh` — the existing pattern
+  for `/api/event` queue flushing; template for the missing
+  `flush_wrapup_queue.sh`
+- `command-center/src/routes/wrapup_segments.ts` — the CC endpoint;
+  supports `correction_of_id` for after-the-fact corrections but has
+  no idempotency guard against replay
+- `command-center/CLAUDE.md` → "Offline fallback" section documents
+  the pattern that exists for events but not for wrapups
+
+---
+
+## Wrapup POSTs succeed with `project_id: null` when `cwd = "?"`
+
+### Symptom
+
+A wrapup payload delivered to CC is accepted (returns an `id`) but the
+resulting `wrapup_segments` row has `project_id: null`. The session row
+is also auto-created with no project linkage. Time for that segment is
+logged but not attributed to any project, so it doesn't show up in
+`/api/stats/client/:id`, `/api/stats/project/:id/summary`, or weekly
+rollups by project.
+
+### Observed case (2026-04-19)
+
+- After the queue backfill described in the previous section, segment
+  `id=10` landed on CC for session
+  `2f2bf82e-d33b-468b-ac4c-f1a04a89871c`.
+- The segment's `project_id` is `null`, even though `$PWD` at the
+  time of the wrapup was `/Users/lightwing/Documents/GitHub/command-center`
+  and `project_aliases` has a row mapping that path to project
+  `command-center`.
+- Root cause: the wrapup payload contained `"cwd": "?"`. That came
+  from the session file's `project_path: "?"`, which had been
+  clobbered by the fresh-template-record bug documented in the first
+  section of this file.
+- CC's `resolveProject(DB, "?")` correctly returned null (no alias
+  matches the literal string `"?"`), so the segment went in
+  unattributed.
+
+### Impact
+
+- Any time segment for a clobbered session is unattributed on CC,
+  even if the POST itself eventually succeeds.
+- Compounding effect with the queue-backlog issue: a backlog of 50+
+  queued wrapups may contain many segments with `cwd: "?"` that will
+  all land unattributed when/if the flush finally runs. That's a
+  one-way data-quality loss — there's no automatic re-resolution
+  once the row is written.
+- The `correction_of_id` pattern can patch individual bad rows after
+  the fact, but requires manually identifying each one.
+
+### Mechanism
+
+Two paths produce this outcome, both chained from upstream:
+
+1. **Clobbered session file** → heartbeat-path writes `"?"` for
+   `project_path` → wrapup script reads that field and puts it in
+   the payload's `cwd` → CC cannot resolve.
+2. **Wrapup caller never has a correct `cwd`** → script falls through
+   to the session file's clobbered value instead of falling back to
+   `$PWD`.
+
+The wrapup skill's Step 1 sanity check explicitly refuses to proceed
+when `project_path != $PWD`, which WOULD catch this — but only if
+the agent follows the skill exactly. In the observed case, the agent
+noted the `"?"` mismatch, chose to proceed anyway (because PWD's real
+value was trivially derivable), and used `$PWD` for its local git
+commands but passed the already-queued payload (with the `"?"` cwd)
+unchanged to CC via manual curl.
+
+### Mitigations — ideas, not yet implemented
+
+1. **Wrapup script: fall back to `$PWD` when session file's
+   `project_path` is `"?"` or empty.** Trivial and corrects the
+   majority of cases. Do not override a valid-looking path — only
+   heal the known-bad sentinel.
+2. **CC side: re-resolve on write.** When the endpoint receives a
+   payload with `cwd == "?"` or empty, attempt to resolve using any
+   other available signal (the `parallel_with` sessions' cwds, the
+   session's previously-recorded project_id if any, etc). Log a
+   warning on the row so it's clear the resolution was best-effort.
+3. **Nightly re-attribution sweep.** Extend `sweepAllUnlinkedCommits`
+   or add a parallel `sweepUnattributedSegments` that tries to
+   resolve `project_id IS NULL` segments via the session's other
+   linked rows (events, commits, sibling segments). Same idea as
+   the existing commit sweep, applied to segments.
+4. **Fix the upstream clobbering.** Documented in the first section
+   of this file; that fix makes this issue largely moot.
+
+### Related files
+
+- `command-center/src/routes/wrapup_segments.ts` —
+  `handleWrapupSegmentCreate` calls `resolveProject(env.DB, body.cwd)`
+  which silently returns null on no-match
+- `command-center/src/lib/resolve.ts` — the resolver; exact-match then
+  prefix-match; no fallback
+- `~/.claude/hooks/session_wrapup.sh` — payload construction
+- First section of this file — the upstream clobbering bug
