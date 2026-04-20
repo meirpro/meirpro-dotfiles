@@ -72,6 +72,20 @@ with open(uuid_path, "w") as f:
   post-clobber window. The first ~19h40m of the session went
   unattributed — all code work is in git, but the time-log entry is
   absent.
+- **Statusline vs JSON file divergence (same session, later snapshot)**:
+  the Claude Code statusline displayed `25h52m (API: 35m57s)` while the
+  session JSON's `telemetry.live` at the same moment held
+  `wall_duration_ms: 71986239` (≈ 20h) and `api_duration_ms: 3891445`
+  (≈ 1h 5m). Two observations:
+  1. Wall times diverge by ~5h52m, consistent with the statusline being
+     live and the JSON snapshot being stale.
+  2. **API time actually decreased** statusline-vs-file (35m57s < 1h5m),
+     which a monotonic cumulative counter cannot do. Either the
+     statusline reports a non-cumulative metric (e.g. API time within
+     the current context window), or Anthropic's own telemetry write
+     path is also resetting counters under some condition. If any
+     downstream tool reads `telemetry.live.api_duration_ms` as an
+     authoritative cumulative figure, it's unreliable.
 
 **New forensic detail vs. the 2026-04-17 case** — the clobbered file
 was NOT the pristine fresh-template record. It contained:
