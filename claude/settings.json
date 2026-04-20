@@ -226,7 +226,7 @@
     "agent-orchestration@claude-code-workflows": true,
     "content-marketing@claude-code-workflows": true,
     "stripe@stripe": true,
-    "impeccable@impeccable": true,
+    "impeccable@impeccable": false,
     "legalzoom@claude-plugins-official": true,
     "neon@claude-plugins-official": true,
     "cloudinary@claude-plugins-official": true,
@@ -245,5 +245,6 @@
     }
   },
   "autoUpdatesChannel": "latest",
+  "skipAutoPermissionPrompt": true,
   "voiceEnabled": true
 }
