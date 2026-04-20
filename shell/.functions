@@ -173,16 +173,25 @@ function tre() {
 }
 
 # Claude Code shortcut with resume support
+# Uses claude-timed wrapper when available, falls back to plain claude
 # Usage: cld [options] [query]
 #        cld -r <partial-session-id> [query]  # Resume session with partial ID (searches for match)
 function cld() {
+	local cmd="claude"
+	if command -v claude-timed &>/dev/null; then
+		cmd="claude-timed"
+		printf '\033[32m⏱ Timed session\033[0m — stats: \033[36mclaude-timed --stats today\033[0m\n' >&2
+	else
+		printf '\033[33m[cld] claude-timed not found, using claude directly\033[0m\n' >&2
+	fi
+
 	if [[ "$1" == "-r" ]]; then
 		shift
 		local partial_id="$1"
 
 		# If no ID provided, use interactive picker
 		if [[ -z "$partial_id" ]]; then
-			claude --resume
+			"$cmd" --resume
 			return
 		fi
 
@@ -205,7 +214,7 @@ function cld() {
 		# If exactly one match found, use it
 		if [[ ${#matches[@]} -eq 1 ]]; then
 			shift  # Remove the partial ID from arguments
-			claude --resume "${matches[0]}" "$@"
+			"$cmd" --resume "${matches[0]}" "$@"
 		elif [[ ${#matches[@]} -gt 1 ]]; then
 			echo "Multiple sessions found matching '$partial_id':"
 			printf '  %s\n' "${matches[@]}"
@@ -213,10 +222,10 @@ function cld() {
 		else
 			# No matches found, maybe it's a full ID or try interactive
 			shift
-			claude --resume "$partial_id" "$@"
+			"$cmd" --resume "$partial_id" "$@"
 		fi
 	else
-		claude "$@"
+		"$cmd" "$@"
 	fi
 }
 
