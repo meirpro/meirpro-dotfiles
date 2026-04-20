@@ -47,6 +47,12 @@ model_name=$(echo "$input" | jq -r '.model.display_name')
 session_id=$(echo "$input" | jq -r '.session_id')
 short_session_id=$(echo "$session_id" | cut -c1-8)
 
+# Shorten model display: "Opus 4.7 (1M context)" → "Opus 4.7 1M".
+# sed leaves input unchanged if the pattern doesn't match, so any
+# unexpected display_name format falls back to the full string.
+short_model=$(printf '%s' "$model_name" | sed -E 's/^(.+)[[:space:]]+\(([0-9]+[KM])[[:space:]]+context\)$/\1 \2/')
+[ -z "$short_model" ] && short_model="$model_name"
+
 # Extract cost and metrics data
 total_cost=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
 lines_added=$(echo "$input" | jq -r '.cost.total_lines_added // 0')
@@ -202,12 +208,18 @@ format_metrics() {
 # Get metrics info
 metrics_info=$(format_metrics)
 
-# Get ccusage statusline data
-ccusage_info=$(bun x ccusage statusline 2>/dev/null || echo "")
+# Get ccusage statusline data — must pipe $input on stdin, otherwise
+# ccusage prints "❌ No input provided" to STDOUT (not stderr) and that
+# leaks into the statusline. Belt-and-suspenders: drop any ❌-prefixed
+# error string in case ccusage emits one anyway.
+ccusage_info=$(printf '%s' "$input" | bun x ccusage statusline 2>/dev/null || true)
+case "$ccusage_info" in
+    ❌*) ccusage_info="" ;;
+esac
 
 # Format the status line with colors (using printf for ANSI codes)
 # Current folder name in dark green
-status_line="\033[0;32m${working_dir}\033[0m\033[1;35m${git_info}\033[0m \033[2m(${model_name}) 🔑 ${short_session_id}\033[0m"
+status_line="\033[0;32m${working_dir}\033[0m\033[1;35m${git_info}\033[0m \033[2m(${short_model}) 🔑 ${short_session_id}\033[0m"
 
 # Add metrics info if available
 if [ -n "$metrics_info" ]; then
