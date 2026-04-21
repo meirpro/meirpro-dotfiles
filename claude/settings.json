@@ -80,6 +80,15 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "Grep|Glob|Read|Search",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cbm-code-discovery-gate"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -136,6 +145,42 @@
             "type": "command",
             "command": "bash ~/.claude/hooks/session_tracker.sh",
             "statusMessage": "Starting session timer..."
+          }
+        ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cbm-session-reminder"
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cbm-session-reminder"
+          }
+        ]
+      },
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cbm-session-reminder"
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/cbm-session-reminder"
           }
         ]
       }
@@ -227,7 +272,6 @@
     "content-marketing@claude-code-workflows": true,
     "stripe@stripe": true,
     "impeccable@impeccable": false,
-    "legalzoom@claude-plugins-official": true,
     "neon@claude-plugins-official": true,
     "cloudinary@claude-plugins-official": true,
     "product-tracking-skills@claude-plugins-official": true,
