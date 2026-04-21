@@ -218,24 +218,37 @@ case "$ccusage_info" in
 esac
 
 # ccusage prefixes its output with "🤖 <model> | " — strip it because the
-# model is already shown on line 1. Leaves the rest (💰 cost / 🔥 burn / 🧠 ctx).
+# model is already shown on line 1.
 case "$ccusage_info" in
     🤖*) ccusage_info="${ccusage_info#*| }" ;;
 esac
 
-# Build a two-line status. Line 1 is identity (project + git + model + session
-# id). Line 2 is metrics (lines edited, time, then either ccusage's rich cost
-# block OR — only as fallback — the local cost figure).
+# Hide ccusage fields that are stuck at $0 (subscription users see today/block
+# as $0 because no API charge, and burn rate is 0 when nothing is being billed).
+# Patterns only match the all-zero form, so the moment any of these become
+# non-zero (e.g. you blow past subscription quota), they reappear automatically.
+#
+# Delimiter is # (not |) and the literal pipe is written as [|]: BSD sed -E
+# treats \| as the ERE alternation operator with no special "literal pipe"
+# meaning, so " \| 🔥 ..." silently expands to "match one space OR ..." and
+# eats the wrong character. The character class [|] removes the ambiguity.
+ccusage_info=$(printf '%s' "$ccusage_info" | sed -E '
+    s# / \$0+\.0+ today / \$0+\.0+ block \([^)]*\)##
+    s# [|] 🔥 \$0+\.0+/hr##
+')
+
+# Build a two-line status. Line 1 packs identity + work-volume metrics
+# (📝 lines, ⏱️ time) so they're always above the fold. Line 2 carries
+# the cost / context-window data from ccusage (or the local cost fallback).
 line1="\033[0;32m${working_dir}\033[0m\033[1;35m${git_info}\033[0m \033[2m${short_model} 🔑 ${short_session_id}\033[0m"
+[ -n "$metrics_info" ] && line1="${line1}${metrics_info}"
 
 line2=""
-[ -n "$metrics_info" ] && line2="${line2}${metrics_info}"
 if [ -n "$ccusage_info" ]; then
-    line2="${line2} ${ccusage_info}"
+    line2="${ccusage_info}"
 elif [ -n "$local_cost_info" ]; then
-    line2="${line2} ${local_cost_info}"
+    line2="${local_cost_info}"
 fi
-line2="${line2# }"  # trim leading space introduced by concatenation
 
 if [ -n "$line2" ]; then
     printf "%b\n%b" "$line1" "$line2"
