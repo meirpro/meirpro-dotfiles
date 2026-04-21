@@ -60,17 +60,11 @@ lines_removed=$(echo "$input" | jq -r '.cost.total_lines_removed // 0')
 total_duration_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
 total_api_duration_ms=$(echo "$input" | jq -r '.cost.total_api_duration_ms // 0')
 
-# Context window — read from harness JSON, NOT ccusage. ccusage hardcodes its
-# 🧠 percentage against a 200K denominator, so on the 1M Opus context model
-# its number is wrong by 5x. The harness already computes the correct
-# percentage knowing the actual model context size.
-#
-# The harness DOES NOT send a cumulative-tokens-in-context field —
-# .context_window.total_input_tokens is the *next turn's* input size (e.g.
-# 658), not the running total. To show a meaningful absolute, we estimate
-# from used_percentage × context_window_size.
+# Context window percentage — read from harness JSON, NOT ccusage. ccusage
+# hardcodes its 🧠 percentage against a 200K denominator, so on the 1M Opus
+# context model it reports 5x the real usage. The harness already computes
+# the correct percentage knowing the actual model context size.
 ctx_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
-ctx_size=$(echo "$input" | jq -r '.context_window.context_window_size // empty')
 
 # Change to the current directory for git operations
 cd "$current_dir" 2>/dev/null || true
@@ -256,23 +250,10 @@ ccusage_info=$(printf '%s' "$ccusage_info" | sed -E '
 ')
 
 # Compute 🧠 locally so the percentage is correct for any model (including
-# the 1M-context Opus variant ccusage doesn't know about). Token count is
-# estimated from pct × size since the harness doesn't expose the cumulative
-# value directly — directionally correct but rounded to whatever resolution
-# the percentage carries.
+# the 1M-context Opus variant ccusage doesn't know about, which it
+# hardcodes against a 200K denominator).
 ctx_info=""
-if [ -n "$ctx_pct" ] && [ -n "$ctx_size" ]; then
-    est_tokens=$(( ctx_pct * ctx_size / 100 ))
-    if [ "$est_tokens" -ge 1000000 ]; then
-        # 1M+: one decimal place (e.g. "1.2M")
-        ctx_pretty="$(echo "scale=1; $est_tokens / 1000000" | bc)M"
-    elif [ "$est_tokens" -ge 1000 ]; then
-        ctx_pretty="$((est_tokens / 1000))K"
-    else
-        ctx_pretty="$est_tokens"
-    fi
-    ctx_info="🧠 ${ctx_pretty} (${ctx_pct}%)"
-fi
+[ -n "$ctx_pct" ] && ctx_info="🧠 ${ctx_pct}%"
 
 # Heartbeat indicator — seconds since last_seen in the session file. Goes
 # stale (climbs unboundedly) if the heartbeat hook stops firing, which is
