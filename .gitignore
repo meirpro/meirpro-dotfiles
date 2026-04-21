@@ -45,5 +45,6 @@ output-styles/
 
 # Backup files
 *.backup
+*.bak-*
 *copy/
 *copy */
