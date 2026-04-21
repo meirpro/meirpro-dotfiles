@@ -60,6 +60,13 @@ lines_removed=$(echo "$input" | jq -r '.cost.total_lines_removed // 0')
 total_duration_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
 total_api_duration_ms=$(echo "$input" | jq -r '.cost.total_api_duration_ms // 0')
 
+# Context window — read from harness JSON, NOT ccusage. ccusage hardcodes its
+# 🧠 percentage against a 200K denominator, so on the 1M Opus context model
+# its number is wrong by 5x. The harness already computes the correct
+# percentage knowing the actual model context size.
+ctx_tokens=$(echo "$input" | jq -r '.context_window.total_input_tokens // empty')
+ctx_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+
 # Change to the current directory for git operations
 cd "$current_dir" 2>/dev/null || true
 
@@ -223,32 +230,72 @@ case "$ccusage_info" in
     🤖*) ccusage_info="${ccusage_info#*| }" ;;
 esac
 
-# Hide ccusage fields that are stuck at $0 (subscription users see today/block
-# as $0 because no API charge, and burn rate is 0 when nothing is being billed).
-# Patterns only match the all-zero form, so the moment any of these become
-# non-zero (e.g. you blow past subscription quota), they reappear automatically.
+# Trim ccusage output:
+#   - " session" word after the cost figure (label is redundant — every
+#     number on the bar is per-session)
+#   - the today/block segment when both are $0 (subscription users see this)
+#   - the burn rate when it's $0
+#   - the entire 🧠 chunk: ccusage's percentage uses a 200K denominator
+#     and is wrong on the 1M Opus model — we compute it ourselves below
+#     from the harness's correct context_window data.
 #
-# Delimiter is # (not |) and the literal pipe is written as [|]: BSD sed -E
-# treats \| as the ERE alternation operator with no special "literal pipe"
-# meaning, so " \| 🔥 ..." silently expands to "match one space OR ..." and
-# eats the wrong character. The character class [|] removes the ambiguity.
+# Delimiter is # (not |) because BSD sed -E treats \| as the ERE
+# alternation operator with no "literal pipe" meaning — " \| 🔥 ..."
+# silently expands to "match one space OR ..." and eats the wrong char.
+# The character class [|] removes the ambiguity.
 ccusage_info=$(printf '%s' "$ccusage_info" | sed -E '
+    s# session##
     s# / \$0+\.0+ today / \$0+\.0+ block \([^)]*\)##
     s# [|] 🔥 \$0+\.0+/hr##
+    s# [|] 🧠 [0-9,]+ \([0-9]+%\)##
 ')
 
-# Build a two-line status. Line 1 packs identity + work-volume metrics
-# (📝 lines, ⏱️ time) so they're always above the fold. Line 2 carries
-# the cost / context-window data from ccusage (or the local cost fallback).
+# Compute 🧠 locally so the percentage is correct for any model
+# (including the 1M-context Opus variant ccusage doesn't know about).
+ctx_info=""
+if [ -n "$ctx_tokens" ] && [ -n "$ctx_pct" ]; then
+    # Format token count with thousands separator (138505 → 138,505)
+    ctx_pretty=$(printf "%'d" "$ctx_tokens" 2>/dev/null || echo "$ctx_tokens")
+    ctx_info="🧠 ${ctx_pretty} (${ctx_pct}%)"
+fi
+
+# Heartbeat indicator — seconds since last_seen in the session file. Goes
+# stale (climbs unboundedly) if the heartbeat hook stops firing, which is
+# itself a useful symptom of the session-file clobber bug. Cheap: one jq
+# call against a local file. Easy to remove if it stops earning its place.
+heartbeat_info=""
+session_file="$HOME/.claude/sessions/${session_id}.json"
+if [ -f "$session_file" ]; then
+    last_seen=$(jq -r '.last_seen // empty' "$session_file" 2>/dev/null)
+    if [ -n "$last_seen" ]; then
+        # TZ=UTC is required: BSD date treats trailing 'Z' as a literal
+        # character (not a UTC marker) and otherwise interprets the time
+        # in the local timezone, producing a 4-hour offset on EDT.
+        last_seen_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$last_seen" +%s 2>/dev/null || echo 0)
+        if [ "$last_seen_epoch" -gt 0 ]; then
+            age_s=$(( $(date +%s) - last_seen_epoch ))
+            if [ "$age_s" -ge 60 ]; then
+                heartbeat_info="💗 $((age_s / 60))m$((age_s % 60))s"
+            elif [ "$age_s" -ge 0 ]; then
+                heartbeat_info="💗 ${age_s}s"
+            fi
+        fi
+    fi
+fi
+
+# Single-line layout: identity + work metrics + cost + context + heartbeat.
+# All live signals fit on one line at typical terminal widths (~120 cols).
 line1="\033[0;32m${working_dir}\033[0m\033[1;35m${git_info}\033[0m \033[2m${short_model} 🔑 ${short_session_id}\033[0m"
 [ -n "$metrics_info" ] && line1="${line1}${metrics_info}"
+if [ -n "$ccusage_info" ]; then
+    line1="${line1} ${ccusage_info}"
+elif [ -n "$local_cost_info" ]; then
+    line1="${line1} ${local_cost_info}"
+fi
+[ -n "$ctx_info" ] && line1="${line1} ${ctx_info}"
+[ -n "$heartbeat_info" ] && line1="${line1} ${heartbeat_info}"
 
 line2=""
-if [ -n "$ccusage_info" ]; then
-    line2="${ccusage_info}"
-elif [ -n "$local_cost_info" ]; then
-    line2="${local_cost_info}"
-fi
 
 if [ -n "$line2" ]; then
     printf "%b\n%b" "$line1" "$line2"
