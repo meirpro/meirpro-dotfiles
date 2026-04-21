@@ -332,8 +332,15 @@ cc_delivered = False
 cc_attempts = 0
 cc_last_error = None
 
-# Only attempt POST when we have everything required.
-if payload['session_id'] and payload['start'] and payload['end']:
+# Strengthened cwd guard: if the project_path sentinel heal (above) failed
+# to produce a real path, refuse to POST a row that would land in CC with
+# project_id=null. Known Issue: see claude/hooks/KNOWN_ISSUES.md section
+# "Wrapup POSTs succeed with project_id: null when cwd = '?'".
+# Queue locally with _skipped_reason so an operator can inspect + repair.
+cwd_unresolved = project_path in ('?', '', None, '/')
+
+# Only attempt POST when we have everything required AND cwd resolved.
+if payload['session_id'] and payload['start'] and payload['end'] and not cwd_unresolved:
     result = cc_client.request(
         'POST', '/api/wrapup_segments',
         body=payload, timeout=15, retries=3,
@@ -350,6 +357,16 @@ if payload['session_id'] and payload['start'] and payload['end']:
                 qf.write(json.dumps(payload) + '\n')
         except Exception as ex:
             cc_last_error = f'queue-write-failed: {ex}'
+elif cwd_unresolved:
+    cc_last_error = f"cwd-unresolved: project_path={project_path!r} after heal; refusing POST to avoid null project_id"
+    # Queue with a visible marker so this is distinguishable from normal
+    # transient-failure queued payloads when flush_wrapup_queue.sh drains.
+    skipped = {**payload, '_skipped_reason': 'cwd-unresolved'}
+    try:
+        with open(queue_file, 'a') as qf:
+            qf.write(json.dumps(skipped) + '\n')
+    except Exception as ex:
+        cc_last_error = f'queue-write-failed: {ex}'
 
 queued_depth = 0
 try:
