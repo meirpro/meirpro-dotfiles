@@ -50,7 +50,7 @@ short_session_id=$(echo "$session_id" | cut -c1-8)
 # Shorten model display: "Opus 4.7 (1M context)" → "Opus 4.7 1M".
 # sed leaves input unchanged if the pattern doesn't match, so any
 # unexpected display_name format falls back to the full string.
-short_model=$(printf '%s' "$model_name" | sed -E 's/^(.+)[[:space:]]+\(([0-9]+[KM])[[:space:]]+context\)$/\1 \2/')
+short_model=$(printf '%s' "$model_name" | sed -E 's/^([A-Za-z]+)[[:space:]]+([0-9.]+)[[:space:]]+\(([0-9]+[KM])[[:space:]]+context\)$/\1\2 \3/')
 [ -z "$short_model" ] && short_model="$model_name"
 
 # Extract cost and metrics data
@@ -119,25 +119,11 @@ working_dir=$(basename "$current_dir")
 # Get git info
 git_info=$(prompt_git)
 
-# Format cost, lines, and time info
+# Format lines and time info. Cost is computed below as a fallback; the
+# primary cost display comes from ccusage (richer: session/today/block).
 format_metrics() {
-    local cost_info=""
     local lines_info=""
     local time_info=""
-
-    # Format cost (round to appropriate decimal places)
-    if [ "$total_cost" != "0" ] && [ "$total_cost" != "null" ]; then
-        # Convert to cents for easier integer math, then format
-        cost_cents=$(echo "$total_cost * 100" | bc 2>/dev/null || echo "0")
-        if [ "$cost_cents" -ge 100 ]; then
-            # >= $1.00, show 1 decimal place
-            cost_formatted=$(printf "%.1f" "$total_cost")
-        else
-            # < $1.00, show 2 decimal places
-            cost_formatted=$(printf "%.2f" "$total_cost")
-        fi
-        cost_info="💰\$${cost_formatted}"
-    fi
 
     # Format lines info with colors
     if [ "$lines_added" != "0" ] || [ "$lines_removed" != "0" ]; then
@@ -196,14 +182,28 @@ format_metrics() {
         time_info="⏱️ API: ${api_time}"
     fi
 
-    # Combine all metrics
+    # Combine metrics
     local metrics=""
-    [ -n "$cost_info" ] && metrics="${metrics} ${cost_info}"
     [ -n "$lines_info" ] && metrics="${metrics} ${lines_info}"
     [ -n "$time_info" ] && metrics="${metrics} ${time_info}"
 
     echo "$metrics"
 }
+
+# Compute local cost as a FALLBACK only — used when ccusage is unavailable
+# or returns nothing. ccusage's display is preferred because it includes
+# today/block totals and the block-reset countdown.
+local_cost_info=""
+if [ "$total_cost" != "0" ] && [ "$total_cost" != "null" ]; then
+    cost_cents=$(echo "$total_cost * 100" | bc 2>/dev/null || echo "0")
+    cost_cents="${cost_cents%.*}"  # bc returns "74.00" — strip decimal so [ -ge ] gets an integer
+    if [ "$cost_cents" -ge 100 ]; then
+        cost_formatted=$(printf "%.1f" "$total_cost")
+    else
+        cost_formatted=$(printf "%.2f" "$total_cost")
+    fi
+    local_cost_info="💰 \$${cost_formatted}"
+fi
 
 # Get metrics info
 metrics_info=$(format_metrics)
@@ -217,18 +217,28 @@ case "$ccusage_info" in
     ❌*) ccusage_info="" ;;
 esac
 
-# Format the status line with colors (using printf for ANSI codes)
-# Current folder name in dark green
-status_line="\033[0;32m${working_dir}\033[0m\033[1;35m${git_info}\033[0m \033[2m(${short_model}) 🔑 ${short_session_id}\033[0m"
+# ccusage prefixes its output with "🤖 <model> | " — strip it because the
+# model is already shown on line 1. Leaves the rest (💰 cost / 🔥 burn / 🧠 ctx).
+case "$ccusage_info" in
+    🤖*) ccusage_info="${ccusage_info#*| }" ;;
+esac
 
-# Add metrics info if available
-if [ -n "$metrics_info" ]; then
-    status_line="${status_line}${metrics_info}"
-fi
+# Build a two-line status. Line 1 is identity (project + git + model + session
+# id). Line 2 is metrics (lines edited, time, then either ccusage's rich cost
+# block OR — only as fallback — the local cost figure).
+line1="\033[0;32m${working_dir}\033[0m\033[1;35m${git_info}\033[0m \033[2m${short_model} 🔑 ${short_session_id}\033[0m"
 
-# Add ccusage info if available
+line2=""
+[ -n "$metrics_info" ] && line2="${line2}${metrics_info}"
 if [ -n "$ccusage_info" ]; then
-    status_line="${status_line} ${ccusage_info}"
+    line2="${line2} ${ccusage_info}"
+elif [ -n "$local_cost_info" ]; then
+    line2="${line2} ${local_cost_info}"
 fi
+line2="${line2# }"  # trim leading space introduced by concatenation
 
-printf "%b" "$status_line"
+if [ -n "$line2" ]; then
+    printf "%b\n%b" "$line1" "$line2"
+else
+    printf "%b" "$line1"
+fi
