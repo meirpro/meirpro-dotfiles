@@ -279,22 +279,35 @@ if [ -f "$session_file" ]; then
     fi
 fi
 
-# Single-line layout: identity + work metrics + cost + context + heartbeat.
-# All live signals fit on one line at typical terminal widths (~120 cols).
-line1="\033[0;32m${working_dir}\033[0m\033[1;35m${git_info}\033[0m \033[2m${short_model} 🔑 ${short_session_id}\033[0m"
-[ -n "$metrics_info" ] && line1="${line1}${metrics_info}"
+# Two-part layout: identity (dir + git + model + session) and stats
+# (metrics + cost + context + heartbeat). Rendered as one line when it
+# fits, split to two lines on narrow terminals.
+identity="\033[0;32m${working_dir}\033[0m\033[1;35m${git_info}\033[0m \033[2m${short_model} 🔑 ${short_session_id}\033[0m"
+
+stats=""
+[ -n "$metrics_info" ] && stats="${stats}${metrics_info}"
 if [ -n "$ccusage_info" ]; then
-    line1="${line1} ${ccusage_info}"
+    stats="${stats} ${ccusage_info}"
 elif [ -n "$local_cost_info" ]; then
-    line1="${line1} ${local_cost_info}"
+    stats="${stats} ${local_cost_info}"
 fi
-[ -n "$ctx_info" ] && line1="${line1} ${ctx_info}"
-[ -n "$heartbeat_info" ] && line1="${line1} ${heartbeat_info}"
+[ -n "$ctx_info" ] && stats="${stats} ${ctx_info}"
+[ -n "$heartbeat_info" ] && stats="${stats} ${heartbeat_info}"
+stats="${stats# }"  # strip leading space
 
-line2=""
+single="${identity} ${stats}"
 
-if [ -n "$line2" ]; then
-    printf "%b\n%b" "$line1" "$line2"
+# Decide single vs split by visible length (ANSI stripped) vs terminal
+# width. bash's ${#var} counts code points, so wide emojis undercount
+# by ~1 cell each; add a small fudge for the handful of emojis we emit.
+# tput needs /dev/tty because stdin is the JSON blob from the harness.
+cols=$(exec 2>/dev/null; tput cols </dev/tty)
+[ -z "$cols" ] && cols="${COLUMNS:-120}"
+visible=$(printf '%b' "$single" | sed $'s/\x1b\\[[0-9;]*m//g')
+visible_len=$(( ${#visible} + 8 ))
+
+if [ -n "$stats" ] && [ "$visible_len" -gt "$cols" ]; then
+    printf "%b\n%b" "$identity" "$stats"
 else
-    printf "%b" "$line1"
+    printf "%b" "$single"
 fi
