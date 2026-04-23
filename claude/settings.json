@@ -145,10 +145,6 @@
             "type": "command",
             "command": "bash ~/.claude/hooks/session_tracker.sh",
             "statusMessage": "Starting session timer..."
-          },
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/flush_wrapup_queue.sh"
           }
         ]
       },
