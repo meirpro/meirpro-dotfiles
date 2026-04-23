@@ -609,3 +609,109 @@ unchanged to CC via manual curl.
   prefix-match; no fallback
 - `~/.claude/hooks/session_wrapup.sh` — payload construction
 - First section of this file — the upstream clobbering bug
+
+---
+
+## Statusline `wall_duration_ms` inflated ~10× over real session wall time
+
+### Symptom
+
+The Claude Code statusline displays a wall-time figure dramatically larger
+than the actual elapsed wall time of the session. API time on the same
+statusline reads correctly. Both numbers come from the same
+`telemetry.live` block inside the session JSON, so the bug is upstream of
+the statusline — Anthropic's telemetry write path itself is producing the
+inflated value.
+
+### Observed case (2026-04-22, session `89f9f6a3-3be9-4a9f-912b-05f047394259`)
+
+- Project: `MiniCC-SweetRobo`. Session start `2026-04-22T20:53:59Z`,
+  last_seen `2026-04-22T23:28:02Z`. **Real wall: ~2h 34m.**
+- Heartbeat-tracked `active_minutes`: 9 (under-counts because heartbeat
+  ticks per prompt only and this session ran many long subagent dispatches
+  with little user typing).
+- Statusline at the moment of `/wrapup`: **`27h0m (API: 1h1m)`**.
+- Session file's `telemetry.live` at the same moment:
+  - `wall_duration_ms: 103842119` ≈ **28h 50m** (matches statusline ±1h)
+  - `api_duration_ms: 3706961` ≈ **1h 1m 47s** (matches statusline)
+  - `cost_usd: 33.64`, `tokens_out: 218638`, `lines_added: 1732`
+- Wrapup script's own clock-based calculation produced the correct
+  `wall_time: "4h 24m"` (computed from segment start timestamp), so the
+  authoritative wrapup output was right; only the statusline was lying.
+
+### Comparison with the 2026-04-20 case
+
+The earlier "Session file resets to placeholder record mid-session" entry
+notes `wall_duration_ms: 71986239` (~20h) on a session that was definitely
+~20h old wall — i.e. the value was *consistent with reality* in that case,
+even though the JSON file's own `start` field had been clobbered. The
+divergence there was statusline (25h52m) vs JSON snapshot (20h), which the
+note attributed to live-vs-stale.
+
+This 2026-04-22 observation is **different**: statusline AND JSON's
+`telemetry.live.wall_duration_ms` agree with each other (both ~28h), and
+both are wrong vs real wall (~2.5h). So the Anthropic telemetry counter
+itself is inflated, not just the statusline's read of it.
+
+### Likely mechanism
+
+`telemetry.live.wall_duration_ms` appears to be a **cumulative counter
+that survives session resumption**. If the session UUID was inherited from
+a previous Claude Code process (e.g. via `claude --resume`, IDE
+reconnect, or `claude-timed` re-attach), the wall counter would
+accumulate the prior process's elapsed time too. A 28h reading on a 2.5h
+session is consistent with this: the UUID has been alive across multiple
+CLI invocations over a day or more.
+
+`api_duration_ms` is also cumulative but, because API time is bounded by
+actual API calls made during the current process (not idle wall), it
+doesn't drift the same way and stays roughly representative of
+"compute spent in this session."
+
+### Impact
+
+- Anything reading `telemetry.live.wall_duration_ms` as "this session's
+  wall time" is wrong. That includes the statusline display and any
+  downstream tooling that quotes the value to a user.
+- Users glancing at the statusline get a misleading impression of how
+  long they've been working in the current sitting. A 2.5-hour focused
+  block reads as a 27-hour marathon.
+- The wrapup script is unaffected because it computes wall time from
+  its own start/end timestamps, not from this counter.
+- CC-side analytics that derive session length from
+  `wrapup_segments.wall_min` are unaffected (those come from the
+  computed value, not telemetry).
+
+### Mitigations — ideas, not yet implemented
+
+1. **Statusline: derive wall from local timestamps.** `~/.claude/sessions/<id>.json`
+   has `start` and `last_seen` set by the heartbeat, both clock-anchored
+   to this process's lifetime. Use `now - start` instead of
+   `telemetry.live.wall_duration_ms`. Falls back gracefully on missing
+   fields. Trade-off: heartbeat-tracked `start` itself can be clobbered
+   (see first section of this file), so this fix has a known failure
+   mode — but a clobbered-zero start at least produces a visibly-wrong
+   "0m" rather than an invisibly-wrong inflated number.
+2. **Statusline: label the source.** Show `27h0m (cumulative across
+   resumes)` or similar so users understand what they're looking at.
+   Doesn't fix the inflation but eliminates the surprise.
+3. **Don't trust `telemetry.live.wall_duration_ms` anywhere downstream.**
+   Treat it as Anthropic-internal accounting; do not export it to
+   project-level dashboards or per-session reports without first
+   reconciling against heartbeat timestamps.
+4. **Open a Claude Code feature request:** ask Anthropic to expose a
+   `current_process_wall_ms` distinct from the cumulative
+   `wall_duration_ms`, OR to reset `wall_duration_ms` on each fresh
+   process start. Either makes the field actually mean what its name
+   suggests.
+
+### Related files
+
+- `~/.claude/statusline-command.sh` (or wherever the statusline reads
+  telemetry) — the consumer that should switch to clock-based wall
+- `~/.claude/sessions/<id>.json` — the source of both the inflated
+  counter and the correct heartbeat-tracked `start` / `last_seen`
+- `~/.claude/hooks/session_wrapup.sh` — the script that already does
+  the right thing (computes wall from segment start/end)
+- 2026-04-20 case in the first section of this file — earlier
+  divergence observation, different magnitude
