@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>pro.meir.cc.flush-wrapup-queue</string>
+
+    <!-- Script resolves $HOME via bash so this plist is portable across Macs.
+         Log paths cannot be shell-expanded by launchd; adjust them if your
+         home directory is not /Users/lightwing. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>$HOME/.claude/hooks/flush_wrapup_queue.sh</string>
+    </array>
+
+    <!-- Run immediately when the agent is loaded (login / after bootstrap)
+         so any backlog from the previous session is drained promptly. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Then every 30 minutes. Empty-queue runs early-exit in <50ms. -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <!-- Don't auto-relaunch on exit; this is a periodic job, not a daemon. -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Capture stdout (JSON summary) and stderr (probe/POST failures). -->
+    <key>StandardOutPath</key>
+    <string>/Users/lightwing/Library/Logs/pro.meir.cc.flush-wrapup-queue.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/lightwing/Library/Logs/pro.meir.cc.flush-wrapup-queue.err.log</string>
+
+    <!-- Background priority so a backed-up queue doesn't compete with
+         foreground work. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>

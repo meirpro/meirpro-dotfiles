@@ -64,6 +64,7 @@ Forked from [martinambrus/claude_timings_wrapper](https://github.com/martinambru
 - **Weekly report**: Run `bash ~/.claude/hooks/session_report.sh [days]` for a summary with agent-hours, wall time, parallelism ratio, and active sessions.
 - **Symlink caution**: Hook scripts live in `meirpro-dotfiles/claude/hooks/` as real files, symlinked from `~/.claude/hooks/`. Never use `ln -sf` when the target is already a symlink — it follows the chain and overwrites the source. Always `rm` first, then `ln -s`.
 - **External hook scripts** (e.g., `claude_timings_wrapper/hooks/`) are referenced by **full absolute path** in `settings.json`, not copied or symlinked into `~/.claude/hooks/`. This avoids conflicts with the meirpro-dotfiles symlink structure.
+- **Queue drains run on a launchd timer, not SessionStart.** `flush_wrapup_queue.sh` is driven by `pro.meir.cc.flush-wrapup-queue` (30-min interval + RunAtLoad). See `claude/launchd/README.md` for install/verify/uninstall.
 
 ## Available macOS Tools
 
