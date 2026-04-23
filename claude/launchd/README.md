@@ -5,6 +5,13 @@ piggybacking on session events. Plists live here as templates; installation
 copies or symlinks them into `~/Library/LaunchAgents/` and loads them with
 `launchctl bootstrap`.
 
+## Quickstart (external users)
+
+`sed -i '' "s|/Users/lightwing|$HOME|g" *.plist` to rewrite the hardcoded log
+paths for your home directory, then run the install block under
+[**Install**](#install) below. macOS only; requires the companion hook scripts
+at `~/.claude/hooks/` (installed by the parent dotfiles repo).
+
 ## Agents
 
 ### `pro.meir.cc.flush-wrapup-queue.plist`
