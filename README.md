@@ -2,6 +2,14 @@
 
 My personal development environment configuration including Claude Code customizations and shell enhancements.
 
+## Quickstart
+
+```bash
+git clone https://github.com/meirpro/meirpro-dotfiles ~/dotfiles && cd ~/dotfiles && ./install.sh
+```
+
+macOS/Linux, interactive. See [Installation](#-installation) below for what it touches and how to opt out of pieces.
+
 ## 📁 Repository Structure
 
 ```
