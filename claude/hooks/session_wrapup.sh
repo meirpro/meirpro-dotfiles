@@ -204,6 +204,20 @@ else:
 
 wm = int((now - p(segment_start)).total_seconds() / 60)
 
+# --- Segment API time + cost ---
+# live.api_duration_ms / live.cost_usd are cumulative-since-session-start.
+# To get THIS segment's spend, subtract the values stored at the previous
+# wrapup (or 0 for the first segment). The next wrapup will use whatever
+# we write back to data['last_api_duration_ms'] / data['last_cost_usd'].
+telemetry_live = (data.get('telemetry', {}) or {}).get('live', {}) or {}
+cumulative_api_ms = int(telemetry_live.get('api_duration_ms') or 0)
+prev_api_ms = int(data.get('last_api_duration_ms') or 0)
+segment_api_ms = max(0, cumulative_api_ms - prev_api_ms)
+
+cumulative_cost_usd = float(telemetry_live.get('cost_usd') or 0.0)
+prev_cost_usd = float(data.get('last_cost_usd') or 0.0)
+segment_cost_usd = max(0.0, cumulative_cost_usd - prev_cost_usd)
+
 # Commits in this segment
 try:
     r = subprocess.run(
@@ -266,6 +280,9 @@ e = {
     'end': NOW,
     'duration_min': active_min,
     'wall_clock_min': wm,
+    'api_duration_ms': segment_api_ms,
+    'api_duration_min': segment_api_ms // 60000,
+    'cost_usd': round(segment_cost_usd, 4),
     'summary': summary,
     'files_changed': fc,
     'commits': commits,
@@ -281,6 +298,10 @@ data['last_wrapup'] = NOW
 data['wrapup_count'] = wc
 data['active_minutes'] = 0  # reset for next segment
 data['last_seen'] = NOW
+# High-watermark of cumulative telemetry at this wrapup. The NEXT wrapup
+# subtracts these to compute its segment-delta API time + cost.
+data['last_api_duration_ms'] = cumulative_api_ms
+data['last_cost_usd'] = cumulative_cost_usd
 # Ensure enriched fields exist for future heartbeats
 if 'start' not in data and 'startedAt' in data:
     data['start'] = start_iso
@@ -377,10 +398,14 @@ except Exception:
     pass
 
 # --- Output report ---
-h, m = divmod(active_min, 60)
-dd = f'{h}h {m}m' if h else f'{m}m'
-wh, wr = divmod(wm, 60)
-wd = f'{wh}h {wr}m' if wh else f'{wr}m'
+def fmt_hm(total_min):
+    h, m = divmod(int(total_min), 60)
+    return f'{h}h {m}m' if h else f'{m}m'
+
+dd = fmt_hm(active_min)
+wd = fmt_hm(wm)
+api_min_total = segment_api_ms // 60000
+api_str = fmt_hm(api_min_total) if api_min_total else f'{segment_api_ms // 1000}s'
 
 report = {
     'project': project,
@@ -389,8 +414,11 @@ report = {
     'segment': wc,
     'active_time': dd,
     'wall_time': wd,
+    'api_time': api_str,
+    'cost_usd': round(segment_cost_usd, 4),
     'active_min': active_min,
     'wall_min': wm,
+    'api_min': api_min_total,
     'start': segment_start,
     'end': NOW,
     'commits': len(commits),
