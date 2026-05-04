@@ -25,6 +25,7 @@
 - **Keep commits small and logically grouped.** Each commit should represent ONE logical change (one feature, one bug fix, one refactor). If you've made changes across many files, split them into multiple commits by concern. A commit touching 10+ files is a warning sign — 94 files in one commit is unacceptable. Large commits are nearly impossible to review, debug, or revert. When in doubt, commit more often, not less.
 - **NEVER drop a git stash.** When `git stash pop` fails due to conflicts, resolve the conflicts — don't drop. A dropped stash is irrecoverable. If conflicts are in unrelated files, use `git checkout --theirs <file>` for those files then `git stash pop` again, or apply as a patch with `git stash show -p | git apply`.
 - **Assume parallel agents are always active.** Other agents may be editing files at the same time — especially shared files like translation JSONs, CLAUDE.md, or CSS. Before stashing, resetting, or discarding changes, verify which changes are yours. If `git diff` or `git status` shows modifications you didn't make, **do not touch those files** — they belong to another agent. When in doubt, ask the user rather than taking destructive action.
+- **Don't recommend destructive git ops to the user.** Never suggest `git reset --hard`, `git clean -fd`, `git checkout -- .`, or `git branch -D` — not even when the working tree looks "messy" or local has diverged from origin. Parallel sessions/agents routinely leave uncommitted WIP that looks unattributed but is real work; suggesting `--hard` makes the user destroy it. If cleanup is genuinely needed, suggest `git stash -u` first so the user can `stash pop` afterwards. If the goal is just "get to a clean origin/master state," create a fresh branch off `origin/master` instead — local master can stay divergent.
 
 ## Code Style
 
@@ -65,6 +66,14 @@ Forked from [martinambrus/claude_timings_wrapper](https://github.com/martinambru
 - **Symlink caution**: Hook scripts live in `meirpro-dotfiles/claude/hooks/` as real files, symlinked from `~/.claude/hooks/`. Never use `ln -sf` when the target is already a symlink — it follows the chain and overwrites the source. Always `rm` first, then `ln -s`.
 - **External hook scripts** (e.g., `claude_timings_wrapper/hooks/`) are referenced by **full absolute path** in `settings.json`, not copied or symlinked into `~/.claude/hooks/`. This avoids conflicts with the meirpro-dotfiles symlink structure.
 - **Queue drains run on a launchd timer, not SessionStart.** `flush_wrapup_queue.sh` is driven by `pro.meir.cc.flush-wrapup-queue` (30-min interval + RunAtLoad). See `claude/launchd/README.md` for install/verify/uninstall.
+- **macOS TCC daemon stuck in stale state** — symptoms: tools fail with `Working directory "..." no longer exists` even though the dir is fine in the actual shell, *or* `Operation not permitted` reading a perfectly valid file (e.g. `python3 can't open file '~/.claude/hooks/play_audio.py'`). The hook-script symptom is the loud one, but the working-directory-disappearance is the more obvious signal — every tool call returns the same EPERM. The script, paths, chmod, and symlinks are all fine; TCC is just denying syscalls. Fix: kill **all** `tccd` processes (there are typically two — one system, one per-user — both may be stuck):
+
+  ```bash
+  ps -A | grep -i '[t]ccd'   # see what's running (1 or 2 PIDs expected)
+  sudo killall tccd          # kills every tccd, system auto-respawns them
+  ```
+
+  Don't chmod or re-symlink — that's not the problem. After the kill, retry the next tool call; it'll succeed once the new tccd reads permissions cleanly.
 
 ## Available macOS Tools
 
