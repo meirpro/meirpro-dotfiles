@@ -168,14 +168,16 @@ if [ "$SUBCMD" = "add" ]; then
     fi
 
     # Atomicity: somewhere in the parent shell command we need the
-    # pattern `git add <stuff with no shell separators> && git commit`.
-    # That allows a chained one-liner and refuses split stage/commit.
-    # `[^&;|]` excludes shell-statement boundaries between add and &&,
-    # so `git add foo; git commit` (which is split, not chained) and
-    # `git add foo` alone (no commit) both fail to match.
+    # pattern `git add <stuff> && <stuff> git commit` where the gaps
+    # contain no shell-statement separators (`;`, `|`). Env-var
+    # prefixes (`PATH=foo git commit`) are intentionally allowed —
+    # otherwise `PATH="$HOME/bin:$PATH" git add foo && PATH=... git
+    # commit` would falsely fail. `&` is allowed as a single
+    # character (it's `&&` we care about); the regex requires the
+    # full `&&` literal as the chain operator.
     if [ -n "$PARENT_CMD" ]; then
-        if [[ "$PARENT_CMD" =~ git[[:space:]]+add[[:space:]]+[^\&\;\|]*\&\&[[:space:]]*git[[:space:]]+commit ]]; then
-            : # OK — at least one chained add+commit pair somewhere
+        if [[ "$PARENT_CMD" =~ git[[:space:]]+add[[:space:]]+[^\;\|]*\&\&[^\;\|]*git[[:space:]]+commit ]]; then
+            : # OK — chained add ... && ... git commit somewhere
         else
             deny "'git add' must be chained with 'git commit -m \"...\"' in the same shell command." \
                 "Why: a separate 'git add' invocation lets a parallel agent slip files into the index between your stage and your commit. Combine them:
@@ -203,11 +205,10 @@ if [ "$SUBCMD" = "commit" ]; then
     done
 
     if [ -n "$PARENT_CMD" ]; then
-        # Same regex as the add side — requires `git add ... && git commit`
-        # without intervening shell separators. That guarantees this
-        # commit was reached via a chained add (allowed), not via a
-        # bare invocation that would ship a stale index.
-        if [[ "$PARENT_CMD" =~ git[[:space:]]+add[[:space:]]+[^\&\;\|]*\&\&[[:space:]]*git[[:space:]]+commit ]]; then
+        # Same regex as the add side — `git add ... && ... git commit`
+        # with no shell separators (`;`, `|`) between. Env-var
+        # prefixes between `&&` and `git commit` are allowed.
+        if [[ "$PARENT_CMD" =~ git[[:space:]]+add[[:space:]]+[^\;\|]*\&\&[^\;\|]*git[[:space:]]+commit ]]; then
             : # OK
         else
             deny "'git commit' must be preceded by 'git add <files>' in the same shell command." \
