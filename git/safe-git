@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+#
+# safe-git — wrapper that intercepts dangerous `git` invocations before
+# they reach the real binary. Symlinked into ~/bin/git so PATH lookup
+# resolves here first; we forward everything safe to the real git.
+#
+# Why a wrapper, not a git hook: git has no `pre-add` hook, and a
+# `pre-commit` hook can't tell whether files were staged via `-A` or by
+# explicit list (the index has the files, not the flags that put them
+# there). The only place we can refuse `git add -A` at the binary level
+# is between the shell and git itself — that's this wrapper.
+#
+# Rules enforced:
+#   1. `git add -A` (any spelling) — refused.
+#   2. `git add .`  — refused.
+#   3. Bare `git add` — refused (must be chained with commit; see #4).
+#   4. `git add` invocations that aren't combined with `git commit -m`
+#      in the SAME shell command — refused. This forces atomic
+#      stage+commit and prevents another agent / parallel session
+#      from sneaking files into the index between two separate calls.
+#   5. `git commit` (or `git commit -a`) without a preceding
+#      `git add <files>` in the same command — refused. Forces
+#      explicit file lists; bare `git commit` could ship whatever was
+#      already staged from a prior turn.
+#
+# Bypass: prefix the command with `GIT_UNSAFE_STAGE=1` to disable all
+# of the above for that single invocation. Logged to
+# ~/.claude/git-bypass.log so it's not silent. Use this for legit
+# imports of large folders.
+#
+# All other `git` invocations (status, diff, log, push, etc.) pass
+# through unchanged.
+
+set -eu
+
+# Locate the real git. We chase PATH and skip ourselves so we can't
+# infinite-loop. Hard-coded fallbacks cover the homebrew + system
+# locations on macOS and Linux.
+WRAPPER_PATH="$(readlink -f "$0" 2>/dev/null || python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$0")"
+find_real_git() {
+    local IFS=':'
+    for dir in $PATH; do
+        local candidate="$dir/git"
+        [ -x "$candidate" ] || continue
+        local resolved="$(readlink -f "$candidate" 2>/dev/null || python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$candidate")"
+        [ "$resolved" = "$WRAPPER_PATH" ] && continue
+        echo "$candidate"
+        return 0
+    done
+    for hard in /opt/homebrew/bin/git /usr/local/bin/git /usr/bin/git; do
+        [ -x "$hard" ] && { echo "$hard"; return 0; }
+    done
+    return 1
+}
+
+REAL_GIT="$(find_real_git || true)"
+if [ -z "${REAL_GIT:-}" ]; then
+    echo "safe-git: cannot find real git binary on PATH or in standard locations" >&2
+    exit 127
+fi
+
+# Bypass — log the exception, then exec the real git directly.
+if [ "${GIT_UNSAFE_STAGE:-}" = "1" ]; then
+    LOG="$HOME/.claude/git-bypass.log"
+    mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+    {
+        printf '[%s] cwd=%s argv=' "$(date '+%Y-%m-%d %H:%M:%S')" "$(pwd)"
+        for a in "$@"; do printf '%q ' "$a"; done
+        printf '\n'
+    } >> "$LOG" 2>/dev/null || true
+    exec "$REAL_GIT" "$@"
+fi
+
+# Detect the subcommand (first non-option arg). Skip global flags like
+# `git -c foo=bar add ...` so the rules still apply.
+SUBCMD=""
+i=1
+while [ $i -le $# ]; do
+    eval "arg=\${$i}"
+    case "$arg" in
+        -*) ;;                  # global flag, keep scanning
+        *) SUBCMD="$arg"; break ;;
+    esac
+    i=$((i + 1))
+done
+
+# Only interesting subcommands: add, commit. Everything else passes through.
+case "$SUBCMD" in
+    add|commit) ;;
+    *) exec "$REAL_GIT" "$@" ;;
+esac
+
+# Reconstruct the *original shell command line* if available. Bash sets
+# $BASH_COMMAND for traps but not for child processes; the canonical
+# read here is /proc/$PPID/cmdline (Linux) or `ps` (macOS). We need
+# this to enforce rule #4/#5 — "git add must be chained with git commit
+# in the SAME shell command". Without the parent's command line we
+# can't tell a one-liner from a split call.
+get_parent_cmdline() {
+    local ppid="$PPID"
+    [ -z "$ppid" ] && return 1
+    if [ -r "/proc/$ppid/cmdline" ]; then
+        # Linux: NUL-separated argv
+        tr '\0' ' ' < "/proc/$ppid/cmdline"
+        return 0
+    fi
+    # macOS — read full cmd via ps. -ww disables truncation.
+    if command -v ps >/dev/null 2>&1; then
+        ps -ww -o command= -p "$ppid" 2>/dev/null
+        return 0
+    fi
+    return 1
+}
+
+PARENT_CMD="$(get_parent_cmdline 2>/dev/null || true)"
+
+deny() {
+    # $1 = reason, $2 = explanation, remaining args = original git argv
+    local reason="$1" explain="$2"
+    shift 2
+    cat >&2 <<EOF
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ git safety wrapper REFUSED this command.
+
+ Reason: $reason
+
+$explain
+
+ Bypass (use sparingly):
+   GIT_UNSAFE_STAGE=1 git $(printf '%q ' "$@" | sed 's/ $//')
+
+ Disable wrapper entirely:
+   /opt/homebrew/bin/git ...   # call real git by full path
+   # or remove ~/bin/git (the symlink) — the rule lives in
+   # ~/Documents/GitHub/meirpro-dotfiles/git/safe-git
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EOF
+    exit 64  # EX_USAGE
+}
+
+# ─────────────────────────────────────────────────────────────────
+# Rule 1+2+3+4: subcommand == add
+# ─────────────────────────────────────────────────────────────────
+if [ "$SUBCMD" = "add" ]; then
+    # Walk add's args looking for forbidden tokens.
+    saw_files=0
+    j=1
+    while [ $j -le $# ]; do
+        eval "a=\${$j}"
+        case "$a" in
+            add) ;;                              # the subcommand itself
+            -A|--all|--no-ignore-removal) deny "git add -A is forbidden — stage explicit file paths." \
+                "Why: -A stages every changed file in the tree, including ones edited by other parallel agents or generated artifacts. Stage by name:
+   git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@" ;;
+            .)                                    deny "git add . is forbidden — stage explicit file paths." \
+                "Why: '.' stages everything under the current directory, including unrelated changes you didn't make. Stage by name:
+   git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@" ;;
+            -*) ;;                                # other flags (-p, --intent-to-add, etc.) pass
+            *) saw_files=1 ;;                     # an explicit path
+        esac
+        j=$((j + 1))
+    done
+
+    if [ $saw_files -eq 0 ]; then
+        deny "bare 'git add' with no file arguments." \
+            "Why: nothing to stage. If you meant 'add everything', that's exactly what's forbidden — stage by explicit name:
+   git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@"
+    fi
+
+    # Atomicity: somewhere in the parent shell command we need the
+    # pattern `git add <stuff with no shell separators> && git commit`.
+    # That allows a chained one-liner and refuses split stage/commit.
+    # `[^&;|]` excludes shell-statement boundaries between add and &&,
+    # so `git add foo; git commit` (which is split, not chained) and
+    # `git add foo` alone (no commit) both fail to match.
+    if [ -n "$PARENT_CMD" ]; then
+        if [[ "$PARENT_CMD" =~ git[[:space:]]+add[[:space:]]+[^\&\;\|]*\&\&[[:space:]]*git[[:space:]]+commit ]]; then
+            : # OK — at least one chained add+commit pair somewhere
+        else
+            deny "'git add' must be chained with 'git commit -m \"...\"' in the same shell command." \
+                "Why: a separate 'git add' invocation lets a parallel agent slip files into the index between your stage and your commit. Combine them:
+   git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@"
+        fi
+    fi
+fi
+
+# ─────────────────────────────────────────────────────────────────
+# Rule 5: subcommand == commit
+# ─────────────────────────────────────────────────────────────────
+if [ "$SUBCMD" = "commit" ]; then
+    # Detect whether this is the COMMIT half of an `add ... && commit`
+    # one-liner (allowed) or a bare `git commit` (forbidden). Rule:
+    # parent shell command must contain `git add ` BEFORE this commit.
+    # Also reject `git commit -a` outright — that's the same foot-gun
+    # as `add -A`.
+    for a in "$@"; do
+        case "$a" in
+            -a|--all|-am|-am*|-a*m|-Am)
+                deny "'git commit -a' is forbidden — it's 'git add -A' in disguise." \
+                    "Why: -a auto-stages every modified tracked file, exactly the over-staging we banned. Stage by name:
+   git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@" ;;
+        esac
+    done
+
+    if [ -n "$PARENT_CMD" ]; then
+        # Same regex as the add side — requires `git add ... && git commit`
+        # without intervening shell separators. That guarantees this
+        # commit was reached via a chained add (allowed), not via a
+        # bare invocation that would ship a stale index.
+        if [[ "$PARENT_CMD" =~ git[[:space:]]+add[[:space:]]+[^\&\;\|]*\&\&[[:space:]]*git[[:space:]]+commit ]]; then
+            : # OK
+        else
+            deny "'git commit' must be preceded by 'git add <files>' in the same shell command." \
+                "Why: a bare 'git commit' ships whatever was staged on a prior turn — possibly by another agent. Combine stage + commit:
+   git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@"
+        fi
+    fi
+fi
+
+# All checks passed — forward to the real git.
+exec "$REAL_GIT" "$@"
