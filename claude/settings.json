@@ -1,7 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "0"
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "includeCoAuthoredBy": false,
   "permissions": {
@@ -239,7 +240,6 @@
     "cicd-automation@claude-code-workflows": true,
     "cloud-infrastructure@claude-code-workflows": true,
     "code-refactoring@claude-code-workflows": true,
-    "code-review-ai@claude-code-workflows": true,
     "comprehensive-review@claude-code-workflows": true,
     "database-cloud-optimization@claude-code-workflows": true,
     "database-migrations@claude-code-workflows": true,
@@ -278,7 +278,8 @@
     "systems-programming@claude-code-workflows": true,
     "wordpress.com@claude-plugins-official": true,
     "clangd-lsp@claude-plugins-official": true,
-    "telegram@claude-plugins-official": true
+    "telegram@claude-plugins-official": true,
+    "arm-cortex-microcontrollers@claude-code-workflows": true
   },
   "extraKnownMarketplaces": {
     "impeccable": {
@@ -288,7 +289,11 @@
       }
     }
   },
+  "effortLevel": "medium",
+  "advisorModel": "opus",
   "autoUpdatesChannel": "latest",
+  "theme": "light",
+  "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
   "voiceEnabled": true
 }
