@@ -11,6 +11,15 @@
 - **Write tests alongside implementation, not after** — write or update tests as you build, not as a separate follow-up step. Tests written after the fact tend to just confirm what the code already does rather than validating correctness.
 ## Git Safety
 
+> ⚠ **The four staging rules below are ENFORCED at the binary level by
+> the `safe-git` wrapper at `~/bin/git` → `meirpro-dotfiles/git/safe-git`.**
+> Violating any of them returns exit 64 with a printed explanation —
+> the real `git` is never reached. This is intentional: rules in
+> CLAUDE.md alone get forgotten in the middle of a long session.
+>
+> Bypass for legitimate edge cases: prefix the command with
+> `GIT_UNSAFE_STAGE=1`. Bypasses are logged to `~/.claude/git-bypass.log`.
+
 - **Always pull the latest changes before starting work**: `git pull origin $(git branch --show-current)`. This avoids merge conflicts and wasted effort from working on stale code.
 - **NEVER include these lines in commit messages:**
   ```
@@ -18,8 +27,9 @@
 
   Co-Authored-By: Claude <noreply@anthropic.com>
   ```
-- **NEVER use `git add -A` or `git add .`** — always stage specific files by name to avoid accidentally committing secrets or unrelated changes.
-- **NEVER stage files and commit in separate commands** (e.g. `git add file` then `git commit`). Always combine into a single command: `git add file1 file2 && git commit -m "message"`. This prevents other parallel agents from accidentally committing each other's work.
+- **NEVER use `git add -A` or `git add .`** — always stage specific files by name. `-A` and `.` stage every changed file in the tree, including ones edited by parallel agents or generated artifacts. *(Hook-enforced: `safe-git` refuses both before reaching real git.)*
+- **NEVER stage files and commit in separate commands** (e.g. `git add file` then `git commit`). Always combine into a single shell invocation: `git add file1 file2 && git commit -m "message"`. *(Hook-enforced: `safe-git` requires `git add ... && git commit` in the parent shell command for any add or commit invocation.)*
+- **NEVER use `git commit -a`** — it's `git add -A` in disguise. *(Hook-enforced.)*
 - Review `git status` and `git diff` before committing. If you see changed files that you did NOT modify, another agent may be working in parallel — do NOT stage or commit those files.
 - **Run tests before committing** if the project has a test suite. Check `package.json` for `test`, `test:unit`, or similar scripts. A quick `npm test` catches regressions before they're pushed.
 - **Keep commits small and logically grouped.** Each commit should represent ONE logical change (one feature, one bug fix, one refactor). If you've made changes across many files, split them into multiple commits by concern. A commit touching 10+ files is a warning sign — 94 files in one commit is unacceptable. Large commits are nearly impossible to review, debug, or revert. When in doubt, commit more often, not less.

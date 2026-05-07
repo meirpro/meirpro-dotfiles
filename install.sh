@@ -229,6 +229,16 @@ if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
     echo -e "${YELLOW}Creating symlinks for git configuration...${NC}"
     create_symlink "$REPO_DIR/git/.gitignore_global" "$HOME/.gitignore" ".gitignore (global)"
     create_symlink "$REPO_DIR/git/.gitattributes" "$HOME/.gitattributes" ".gitattributes"
+
+    # safe-git wrapper at ~/bin/git intercepts dangerous git invocations
+    # (git add -A, git add ., split stage/commit, bare commit -a) before
+    # they reach the real git binary. PATH lookup must resolve ~/bin
+    # earlier than /opt/homebrew/bin for this to work — the bash_profile
+    # template already prepends it last so later additions can't push it
+    # behind. Bypass with GIT_UNSAFE_STAGE=1.
+    chmod +x "$REPO_DIR/git/safe-git"
+    mkdir -p "$HOME/bin"
+    create_symlink "$REPO_DIR/git/safe-git" "$HOME/bin/git" "git wrapper (~/bin/git → safe-git)"
     echo
 
     # Copy template files (don't symlink these - user needs to customize)
