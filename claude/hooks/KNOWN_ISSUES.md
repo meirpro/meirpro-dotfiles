@@ -805,3 +805,133 @@ doesn't drift the same way and stays roughly representative of
   the right thing (computes wall from segment start/end)
 - 2026-04-20 case in the first section of this file — earlier
   divergence observation, different magnitude
+
+---
+
+## `session_id` is not a 1:1 identifier for "one chat" — multiple writers share it
+
+### Symptom
+
+When asked "how many wrapups were logged in this conversation?", the
+session file's `wrapup_count` and the segment numbers returned by
+`session_wrapup.sh` overcount versus what the agent and user actually
+remember invoking. Segments appear in `time-log.jsonl` under the same
+`session_id` that nobody in the chat can account for. Date-rollover
+artifacts and `last_wrapup` advancing without a manual `/wrapup` are
+related symptoms.
+
+### Observed case (2026-05-08, session `4748c657-860e-4659-ab78-6ea6a180a468`)
+
+- User and agent recalled invoking `/wrapup` three times in the chat.
+  The script's responses returned `segment: 2`, `segment: 6`, and
+  `segment: 7` respectively. Gap of segments 3–5 was unaccounted for
+  in the conversation.
+- `parallel_with` arrays on those three segments listed 7, 9, and 12
+  overlapping session IDs respectively — the same conversation's
+  session_id appeared in some of those neighbor arrays too, indicating
+  the file was being concurrently written by multiple agents that
+  happened to inherit the same UUID.
+- `last_wrapup` had advanced once between segment 2 and segment 6
+  with no agent invocation visible in the chat transcript — most
+  likely a `claude-timed` auto-wrapup at process exit followed by a
+  resume that re-attached to the UUID, or another long-running agent
+  on the same session_id firing its own `/wrapup`.
+- Two date-change `<system-reminder>` events fired between segments,
+  during which the session file's `last_seen` advanced without any
+  observable user activity — confirming the heartbeat-touch path is
+  active and writing to the same file regardless of which conversation
+  the prompt belongs to.
+
+### Mechanism — what shares a `session_id`
+
+The UUID identifies a Claude Code **session file**
+(`~/.claude/sessions/<uuid>.json`), not a conversation. Things that
+write into that file or invoke wrapup against it:
+
+1. **`claude-timed` auto-wrapup on process exit.** Fires a mechanical
+   summary segment for any session that ends without a manual
+   `/wrapup`. The user has no recollection of triggering this, but it
+   adds a segment under the same UUID.
+2. **Parallel agents in concurrent sessions.** When multiple Claude
+   Code instances run side-by-side (the user observed up to 12
+   `parallel_with` overlapping IDs), any of them may invoke `/wrapup`,
+   each landing under its own session_id but writing to a shared
+   `time-log.jsonl` and CC `wrapup_segments` table. If any of them
+   pulled the same UUID via session resumption, segments merge in a
+   way the conversation can't see.
+3. **Date-rollover and idle-tick heartbeats.** Claude Code's heartbeat
+   updates `last_seen` and may trigger `last_wrapup` advancement on
+   certain transitions even without a user prompt — the agent never
+   sees these as conversation turns but they affect the file.
+4. **Multiple chats reusing one Claude Code process.** A single CLI
+   process may host distinct conversations across resumes. The session
+   file persists across chats; each chat sees the cumulative state.
+5. **`telemetry.live` cumulative counters.** Documented above
+   (2026-04-22 inflated-wall case) — these accumulate across process
+   resumes, contributing to the same "this UUID is older than this
+   chat" surprise.
+
+### Impact
+
+- **Segment numbering misleads when read as "wrapups in this chat."**
+  An agent answering "how many wrapups did we do?" by quoting the
+  current `wrapup_count` or the latest segment number will overcount
+  whenever any of the above writers contributed.
+- **Forensic recovery from `time-log.jsonl` is ambiguous.** Two
+  segments under the same session_id and overlapping time windows
+  cannot be reliably attributed to a specific conversation without
+  cross-referencing the conversation transcript.
+- **CC analytics that key on `session_id` collapse multi-chat work
+  into one row.** A session that hosted three distinct conversations
+  shows up as one session with three segments — fine for time
+  attribution, misleading for "what was that conversation about."
+- **`parallel_with` is informative but not authoritative.** It lists
+  *concurrent* session IDs at wrapup time, not the writers that
+  contributed to the file.
+
+### Mitigations — ideas, not yet implemented
+
+Ordered by where the fix would live:
+
+1. **Add a per-conversation marker to wrapup payloads.** Hash or
+   sequence-number the conversation transcript (e.g., first prompt's
+   timestamp + a turn count) and include it in the wrapup payload as
+   `conversation_id`. CC stores it; downstream tooling can group by
+   `(session_id, conversation_id)` instead of `session_id` alone.
+   Trade-off: requires the agent or a hook to know which transcript
+   it's in. Claude Code does write per-conversation JSONL files; that
+   path could be the source of truth.
+2. **Use the conversation transcript file as the canonical mapping.**
+   Claude Code already writes one JSONL per conversation under
+   `~/.claude/projects/.../`. A wrapup hook could resolve the active
+   transcript path at invoke time and stamp it on the segment. This
+   converts "segments under this UUID" to "segments under this
+   transcript" — a 1:1 with conversations by construction.
+3. **Stop quoting `wrapup_count` / segment-number as "this chat".**
+   The wrapup output includes `segment: N`, which agents and users
+   read as "Nth wrapup in this conversation." Rename it (e.g.,
+   `session_segment` or `lifetime_segment`) and add a separate
+   `chat_segment` derived from the transcript-id mapping above. Until
+   that lands, agents should stop interpreting the existing field as
+   conversational.
+4. **`parallel_with` enrichment.** Augment the array with the
+   *writers* observed during the segment window (not just concurrent
+   session_ids) — read `time-log.jsonl` between the segment's start
+   and end and dedupe writer IDs. Gives a better forensic trail when
+   debugging "where did this segment come from?"
+5. **Heartbeat: distinguish user-prompt heartbeats from idle-tick
+   heartbeats.** Add a `last_user_prompt_at` field separate from
+   `last_seen`, so consumers can tell genuine activity from idle
+   touches. Also useful for the inflated-wall problem above.
+
+### Related files
+
+- `~/.claude/sessions/<uuid>.json` — the shared session file
+- `~/.claude/time-log.jsonl` — the append-only segment log
+- `~/.claude/hooks/session_wrapup.sh` — emits `segment` numbers that
+  are session-lifetime cumulative, not per-chat
+- Per-conversation transcript JSONL under `~/.claude/projects/...`
+  — the only thing that's actually 1:1 with a chat
+- 2026-04-22 case in the previous section — same root pattern (UUID
+  outlives a single sitting), different surface symptom
+
