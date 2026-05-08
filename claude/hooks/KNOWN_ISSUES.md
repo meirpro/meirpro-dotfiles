@@ -935,3 +935,83 @@ Ordered by where the fix would live:
 - 2026-04-22 case in the previous section — same root pattern (UUID
   outlives a single sitting), different surface symptom
 
+---
+
+## `cld` (claude-timed) fails to start with EPERM on its own wrapper script
+
+### Symptom
+
+Running `cld` exits immediately before Claude can launch:
+
+```
+$ cld
+⏱ Timed session — stats: claude-timed --stats today
+node:fs:560
+  return binding.open(
+                 ^
+
+Error: EPERM: operation not permitted, open
+'/Users/lightwing/Documents/GitHub/claude_timings_wrapper/bin/claude-timed.mjs'
+  errno: -1, code: 'EPERM', syscall: 'open',
+  path: '.../claude_timings_wrapper/bin/claude-timed.mjs'
+}
+```
+
+The file exists, has correct ownership and `+x` permissions, and the
+shell can `cat` it fine — but Node's `binding.open` is denied at the
+syscall level. The `cld` shell function's fallback to plain `claude`
+does NOT trigger here, because the `claude-timed` binary on PATH is
+found and invoked; failure happens after exec, inside Node's loader.
+
+### Observed case (2026-05-08)
+
+- Project: `hayom`. User typed `cld` to start a timed session and
+  got the EPERM trace above.
+- This is the same `tccd`-stuck-state class of bug already documented
+  in user-global CLAUDE.md ("macOS TCC daemon stuck in stale state"):
+  every Node syscall that touches a file under
+  `~/Documents/GitHub/` returns `EPERM` even though permissions are
+  correct, until `tccd` is killed and respawned.
+
+### Mechanism
+
+macOS TCC (`tccd`) caches access decisions per-process-tree. When
+the daemon enters a stale state (sometimes triggered by sleep/wake,
+fast-user-switch, or a Full Disk Access permission change while a
+client is mid-syscall), every subsequent `open()` from affected
+binaries gets `EPERM` regardless of POSIX permissions. The system
+`tccd` and per-user `tccd` can each get stuck independently — both
+must be killed.
+
+### Fix (already documented in CLAUDE.md, repeated here for searchability)
+
+```bash
+ps -A | grep -i '[t]ccd'   # see what's running (1 or 2 PIDs expected)
+sudo killall tccd          # kills every tccd, system auto-respawns them
+```
+
+After the kill, retry `cld` — it succeeds once the new tccd reads
+permissions cleanly. Do NOT chmod the file or re-symlink the wrapper
+— neither is the problem and both are no-ops against this failure
+mode.
+
+### Why log this here
+
+User-global CLAUDE.md captures the general TCC-stuck pattern but
+under a "macOS Tools" heading that's not searchable for someone
+debugging `cld`/`claude-timed` specifically. This entry exists so
+that grepping KNOWN_ISSUES.md for `EPERM`, `cld`, or `claude-timed`
+surfaces the fix immediately. The actual remediation is the `tccd`
+kill — there is nothing to fix in the wrapper itself.
+
+### Related files
+
+- `~/Documents/GitHub/claude_timings_wrapper/bin/claude-timed.mjs`
+  — the wrapper Node entrypoint that EPERM trips on
+- `~/.claude/CLAUDE.md` → "macOS TCC daemon stuck in stale state"
+  — the canonical writeup of the underlying bug
+- `cld` shell function (in `meirpro-dotfiles/shell/`) — wraps
+  `claude-timed` with a fallback to plain `claude`; the fallback
+  does NOT trigger on this failure because the wrapper is found
+  on PATH and exec succeeds before Node's loader fails
+
