@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Defer to the project's hook if it ships one — avoids double-running
+# the same formatter logic on every edit. The project hook lives in its
+# repo (committed) so teammates without these global hooks still get
+# format-on-edit; the global one stays as the default for projects that
+# don't ship their own.
+if [ -n "$CLAUDE_PROJECT_DIR" ] && [ -x "$CLAUDE_PROJECT_DIR/.claude/hooks/$(basename "$0")" ]; then
+    exit 0
+fi
+
 # Read JSON input from stdin
 input=$(cat)
 
