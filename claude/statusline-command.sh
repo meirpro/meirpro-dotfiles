@@ -206,6 +206,11 @@ if [ "$total_cost" != "0" ] && [ "$total_cost" != "null" ]; then
     else
         cost_formatted=$(printf "%.2f" "$total_cost")
     fi
+    # Drop trailing zeros and any dangling decimal point: $9.00 → $9,
+    # $5.80 → $5.8, $5.79 unchanged. Two strips cover the %.2f case.
+    cost_formatted="${cost_formatted%0}"
+    cost_formatted="${cost_formatted%0}"
+    cost_formatted="${cost_formatted%.}"
     local_cost_info="💰 \$${cost_formatted}"
 fi
 
