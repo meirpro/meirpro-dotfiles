@@ -125,8 +125,8 @@ working_dir=$(basename "$current_dir")
 # Get git info
 git_info=$(prompt_git)
 
-# Format lines and time info. Cost is computed below as a fallback; the
-# primary cost display comes from ccusage (richer: session/today/block).
+# Format lines and time info. Cost is computed locally below from the
+# harness's own cost.total_cost_usd.
 format_metrics() {
     local lines_info=""
     local time_info=""
@@ -196,9 +196,7 @@ format_metrics() {
     echo "$metrics"
 }
 
-# Compute local cost as a FALLBACK only — used when ccusage is unavailable
-# or returns nothing. ccusage's display is preferred because it includes
-# today/block totals and the block-reset countdown.
+# Cost from the harness's own running total (cost.total_cost_usd).
 local_cost_info=""
 if [ "$total_cost" != "0" ] && [ "$total_cost" != "null" ]; then
     cost_cents=$(echo "$total_cost * 100" | bc 2>/dev/null || echo "0")
@@ -213,41 +211,6 @@ fi
 
 # Get metrics info
 metrics_info=$(format_metrics)
-
-# Get ccusage statusline data — must pipe $input on stdin, otherwise
-# ccusage prints "❌ No input provided" to STDOUT (not stderr) and that
-# leaks into the statusline. Belt-and-suspenders: drop any ❌-prefixed
-# error string in case ccusage emits one anyway.
-ccusage_info=$(printf '%s' "$input" | bun x ccusage statusline 2>/dev/null || true)
-case "$ccusage_info" in
-    ❌*) ccusage_info="" ;;
-esac
-
-# ccusage prefixes its output with "🤖 <model> | " — strip it because the
-# model is already shown on line 1.
-case "$ccusage_info" in
-    🤖*) ccusage_info="${ccusage_info#*| }" ;;
-esac
-
-# Trim ccusage output:
-#   - " session" word after the cost figure (label is redundant — every
-#     number on the bar is per-session)
-#   - the today/block segment when both are $0 (subscription users see this)
-#   - the burn rate when it's $0
-#   - the entire 🧠 chunk: ccusage's percentage uses a 200K denominator
-#     and is wrong on the 1M Opus model — we compute it ourselves below
-#     from the harness's correct context_window data.
-#
-# Delimiter is # (not |) because BSD sed -E treats \| as the ERE
-# alternation operator with no "literal pipe" meaning — " \| 🔥 ..."
-# silently expands to "match one space OR ..." and eats the wrong char.
-# The character class [|] removes the ambiguity.
-ccusage_info=$(printf '%s' "$ccusage_info" | sed -E '
-    s# session##
-    s# / \$0+\.0+ today / \$0+\.0+ block \([^)]*\)##
-    s# [|] 🔥 \$0+\.0+/hr##
-    s# [|] 🧠 [0-9,]+ \([0-9]+%\)##
-')
 
 # Compute 🧠 locally so the percentage is correct for any model (including
 # the 1M-context Opus variant ccusage doesn't know about, which it
@@ -286,11 +249,7 @@ identity="\033[0;32m${working_dir}\033[0m\033[1;35m${git_info}\033[0m \033[2m${s
 
 stats=""
 [ -n "$metrics_info" ] && stats="${stats}${metrics_info}"
-if [ -n "$ccusage_info" ]; then
-    stats="${stats} ${ccusage_info}"
-elif [ -n "$local_cost_info" ]; then
-    stats="${stats} ${local_cost_info}"
-fi
+[ -n "$local_cost_info" ] && stats="${stats} ${local_cost_info}"
 [ -n "$ctx_info" ] && stats="${stats} ${ctx_info}"
 [ -n "$heartbeat_info" ] && stats="${stats} ${heartbeat_info}"
 stats="${stats# }"  # strip leading space
