@@ -3,6 +3,31 @@
 # Usage: bash session_wrapup.sh --session-id <UUID> "summary"
 #    or: bash session_wrapup.sh --pid <PID> "summary"       (finds session by PID)
 #    or: bash session_wrapup.sh "summary"                    (falls back to project-path match)
+#
+# ┌─ DATA-SOURCE NOTE (read before trusting wall_min/active_min/commits) ─┐
+# │ The structured wall/active/commits fields below are derived from the  │
+# │ session FILE (~/.claude/sessions/<uuid>.json). That file can be       │
+# │ MISSING or STALE — most notably for sessions running inside a git     │
+# │ WORKTREE: the heartbeat hook keys session files by the main-repo      │
+# │ project_path, so a worktree session often has NO session file at all. │
+# │ When that happens this script falls back to "now", emitting a bogus   │
+# │ wall_min≈1 / active_min=0 / commits=0 even for a multi-hour session.  │
+# │                                                                       │
+# │ The AUTHORITATIVE numbers are the ones on the user's Claude Code      │
+# │ STATUS LINE (e.g. "41h57m (API: 4h7m) 💰 $219") — produced by the     │
+# │ claude-timed PTY wrapper from ~/.claude/timings/*.jsonl, independent  │
+# │ of the session file. api_time + cost_usd here ARE sourced from the    │
+# │ cumulative telemetry block and are trustworthy; wall/active are NOT   │
+# │ when the session file is absent.                                      │
+# │                                                                       │
+# │ CONTRACT for the /wrapup skill (and any caller): if wall_min is ≤2    │
+# │ or active_min is 0 on a session you know ran longer, treat the        │
+# │ structured fields as unreliable and EMBED the user's status-line      │
+# │ wall/API/cost verbatim into the summary text, and surface the         │
+# │ discrepancy in the report. Never present the bogus 1m as the truth.   │
+# │ (TODO: make the heartbeat worktree-aware so worktree sessions get     │
+# │  their own session file and this fallback stops firing.)              │
+# └───────────────────────────────────────────────────────────────────────┘
 
 SESSIONS_DIR="$HOME/.claude/sessions"
 TIME_LOG="$HOME/.claude/time-log.jsonl"
@@ -416,9 +441,17 @@ report = {
     'wall_time': wd,
     'api_time': api_str,
     'cost_usd': round(segment_cost_usd, 4),
+    # NOTE: active_min/wall_min are session-FILE derived. If the session
+    # file was missing (common for git-worktree sessions — see the
+    # DATA-SOURCE NOTE header), these are unreliable (wall≈1, active=0)
+    # and the caller MUST substitute the user's status-line numbers.
+    # api_min/cost_usd come from telemetry and remain trustworthy.
     'active_min': active_min,
     'wall_min': wm,
     'api_min': api_min_total,
+    # Hint flag so callers can detect the unreliable-wall case without
+    # re-deriving it: true when wall is ~0 (no real session-file span).
+    'wall_unreliable': wm <= 2,
     'start': segment_start,
     'end': NOW,
     'commits': len(commits),

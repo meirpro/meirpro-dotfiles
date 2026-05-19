@@ -120,28 +120,63 @@ Then call the wrapup script:
 bash ~/.claude/hooks/session_wrapup.sh --session-id <session_id> "<your summary here>"
 ```
 
+### Step 5.5 — Reconcile against the status line (MANDATORY when worktree / no session file)
+
+The script's `wall_min`/`active_min`/`commits` are derived from the session
+FILE. That file is **missing for git-worktree sessions** (the heartbeat keys
+session files by the main-repo path), so the script falls back to "now" and
+returns a bogus `wall_min`≈1, `active_min`=0, `commits`=0 for what may be a
+multi-hour session. `api_min`/`cost_usd` come from telemetry and ARE correct.
+
+The **authoritative** numbers are on the user's Claude Code STATUS LINE
+(e.g. `41h57m (API: 4h7m) 💰 $219`), produced by `claude-timed` from
+`~/.claude/timings/*.jsonl`, independent of the session file.
+
+So:
+
+1. Look at the script's JSON output. If it contains `"wall_unreliable": true`
+   (or `wall_min` ≤ 2 while you know the session ran longer, or you resolved
+   the session via the worktree fallback / no session file existed):
+   - **Ask the user for their status-line figures** if you don't already have
+     them ("what does your status line show for time / API / cost?"), OR use
+     the figures the user already volunteered this turn.
+   - **Embed those authoritative numbers verbatim into the summary text**
+     passed to `session_wrapup.sh` (so the append-only time-log entry carries
+     the truth even though the structured fields are understated), e.g.
+     append: `Wall <status-line wall>, API <status-line api>, $<cost> (from
+     status line; session-file gap — worktree).`
+2. Always run the script with `--session-id` of the real session even if no
+   file exists for it — the telemetry/cost still resolve, and the summary
+   text carries the corrected wall/API/cost.
+
 ### Step 6 — Display the report
 
-Parse the JSON output and format as:
+Parse the JSON output and format as below. When Step 5.5 applied, show the
+status-line numbers as the headline figures and annotate the structured ones:
 
 ```
 --- Session Wrapup ---
 Project:     <project>
 Branch:      <branch>
 Segment:     <N>
-Active time: <Xh Ym>
-Wall time:   <Xh Ym>
-Commits:     <N>
-Summary:     <text>
+Active time: <status-line wall>   (script saw <wall_min>m — session-file gap)
+Wall time:   <status-line wall>   (worktree: no session file; see note)
+API time:    <api_time>           ✓ (telemetry — trustworthy)
+Cost:        $<cost_usd>           ✓ (telemetry — trustworthy)
+Commits:     <N or "git log count">
+Summary:     <text incl. embedded authoritative numbers>
 Logged to:   ~/.claude/time-log.jsonl
 ---
 ```
+
+When the session file WAS present and valid, omit the parentheticals and use
+the structured fields directly.
 
 ## Rules
 
 - **Always pass `--session-id`** — never rely on project-path guessing
 - **NEVER pick the session by `ls -t` / most-recently-modified.** Stale heartbeats and parallel agents make that unreliable. Use the Step 1 resolver.
-- **Never proceed past Step 1 if `project_path != $PWD`.** A mismatch means you have the wrong session file.
+- **Never proceed past Step 1 if `project_path != $PWD`** — UNLESS the only mismatch is that `$PWD` is a git worktree of the session's project (e.g. session `project_path` is `/repo`, `$PWD` is `/repo/.claude/worktrees/foo`). That is the same project; it is NOT cross-project contamination. In that case proceed, but apply Step 5.5 (status-line reconciliation) because the worktree session likely has no session file of its own.
 - **Run exactly the commands listed above** — no variations, no extra git commands
 - Each wrapup logs ONE segment. The session stays alive for the next topic.
 - Do NOT use inline `$()` or date arithmetic — the script handles all calculation
