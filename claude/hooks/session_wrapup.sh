@@ -25,8 +25,14 @@
 # │ structured fields as unreliable and EMBED the user's status-line      │
 # │ wall/API/cost verbatim into the summary text, and surface the         │
 # │ discrepancy in the report. Never present the bogus 1m as the truth.   │
-# │ (TODO: make the heartbeat worktree-aware so worktree sessions get     │
-# │  their own session file and this fallback stops firing.)              │
+# │                                                                       │
+# │ FIXED in session_tracker.sh (2026-05-19): the heartbeat now detects   │
+# │ when $(pwd) is inside a git worktree and force-overwrites the         │
+# │ session record's project_path with the worktree pwd, overriding any   │
+# │ inherited parent-repo value from PID-format migration. Strategy 3 in  │
+# │ this script also matches worktree_path. New worktree sessions get a   │
+# │ correct file from the first heartbeat. The wall_unreliable flag       │
+# │ remains as a defensive fallback for old/missing session files.        │
 # └───────────────────────────────────────────────────────────────────────┘
 
 SESSIONS_DIR="$HOME/.claude/sessions"
@@ -75,16 +81,19 @@ for f in glob.glob(os.path.join('$SESSIONS_DIR','*.json')):
 fi
 
 # Strategy 3: Fallback — most recent file matching project path
+# (matches against both project_path and worktree_path so a worktree
+# session whose project_path was inherited from the parent repo still
+# resolves when invoked from the worktree cwd).
 if [ -z "$SESSION_FILE" ] && [ -d "$SESSIONS_DIR" ]; then
   PROJECT_PATH="$(pwd)"
   SESSION_FILE=$(python3 -c "
 import json,os,glob
-p='$PROJECT_PATH'; best=None; bm=0
+p='$PROJECT_PATH'.lower(); best=None; bm=0
 for f in glob.glob(os.path.join('$SESSIONS_DIR','*.json')):
   try:
     with open(f) as h: d=json.load(h)
-    pp=d.get('project_path',d.get('cwd',''))
-    if pp.lower()==p.lower():
+    cands = [d.get('project_path',d.get('cwd','')), d.get('worktree_path','')]
+    if any(c and c.lower()==p for c in cands):
       m=os.path.getmtime(f)
       if m>bm: best=f; bm=m
   except: pass
@@ -174,6 +183,11 @@ else:
 if project_path in ('?', '', None):
     project_path = os.getcwd()
     project = os.path.basename(project_path) or project
+    # Persist the heal back to the session record so subsequent wrapups
+    # don't re-trigger this branch (and so CC's resolveProject can
+    # attribute future segments correctly).
+    data['project_path'] = project_path
+    data['project'] = project
 
 # Segment wall time (since last wrapup or session start)
 segment_start = last_wrapup
