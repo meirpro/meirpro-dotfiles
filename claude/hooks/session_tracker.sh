@@ -34,15 +34,38 @@ PROJECT_PATH="$(pwd)"; PROJECT_NAME="$(basename "$PROJECT_PATH")"
 BRANCH="$(git branch --show-current 2>/dev/null || echo n/a)"
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# Worktree detection. Claude Code's native PID-format session record stores
+# `cwd` as the main repo even when launched from a worktree; session_lib's
+# migration then copies that into project_path, and the preserve-guard below
+# would lock it in. When $(pwd) is inside a worktree, treat pwd as
+# authoritative and force-overwrite project_path. See KNOWN_ISSUES.md
+# 2026-04-20/04-23/05-19 entries.
+GIT_DIR_ABS=$(git rev-parse --absolute-git-dir 2>/dev/null)
+GIT_COMMON_DIR_ABS=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+IS_WORKTREE=0
+WORKTREE_PATH=""
+if [ -n "$GIT_DIR_ABS" ] && [ -n "$GIT_COMMON_DIR_ABS" ] && [ "$GIT_DIR_ABS" != "$GIT_COMMON_DIR_ABS" ]; then
+  IS_WORKTREE=1
+  WORKTREE_PATH=$(git rev-parse --show-toplevel 2>/dev/null)
+fi
+
 SESSION_LIB="$HOME/.claude/hooks/session_lib.py"
 
 # Try to migrate any existing PID-format orphan for this session_id
 EXISTING=$(python3 "$SESSION_LIB" resolve "$SESSION_ID" 2>/dev/null)
 
 if [ -n "$EXISTING" ] && [ -f "$EXISTING" ]; then
-  # File already exists (UUID or just-migrated PID) — update fields, don't overwrite
+  # File already exists (UUID or just-migrated PID) — update fields.
+  # project_path heal rules:
+  #   - Always overwrite when existing is missing/empty/'?'.
+  #   - Overwrite when $(pwd) is inside a git worktree: pwd is then
+  #     authoritative; any inherited parent-repo value (from PID-format
+  #     migration) is wrong and would survive forever otherwise.
+  #   - Otherwise preserve existing value (guards against pwd drift in
+  #     non-worktree contexts).
+  IS_WORKTREE="$IS_WORKTREE" WORKTREE_PATH="$WORKTREE_PATH" \
   python3 -c "
-import json
+import json, os
 try:
  with open('$EXISTING') as f: d=json.load(f)
  d.setdefault('session_id','$SESSION_ID')
@@ -51,18 +74,29 @@ try:
  d.setdefault('active_minutes',0)
  if not d.get('project') or d.get('project')=='?':
   d['project']='$PROJECT_NAME'
- if not d.get('project_path') or d.get('project_path')=='?':
+ is_wt = os.environ.get('IS_WORKTREE') == '1'
+ cur_pp = d.get('project_path')
+ if not cur_pp or cur_pp == '?' or is_wt:
   d['project_path']='$PROJECT_PATH'
+  # When the heal fires, project name should track project_path so the
+  # two don't disagree (e.g., project='repo' but project_path='.../wt').
+  d['project']='$PROJECT_NAME'
+ if is_wt:
+  d['worktree_path'] = os.environ.get('WORKTREE_PATH') or '$PROJECT_PATH'
  d['branch']='$BRANCH'
  with open('$EXISTING','w') as f: json.dump(d,f,indent=2)
 except: pass
 " 2>/dev/null
 else
   # Fresh session — create a new UUID file
+  IS_WORKTREE="$IS_WORKTREE" WORKTREE_PATH="$WORKTREE_PATH" \
   python3 -c "
-import json
+import json, os
+rec = {'session_id':'$SESSION_ID','start':'$NOW','last_seen':'$NOW','active_minutes':0,'project':'$PROJECT_NAME','project_path':'$PROJECT_PATH','branch':'$BRANCH','recent_commits':[],'uncommitted_changes':0}
+if os.environ.get('IS_WORKTREE') == '1':
+ rec['worktree_path'] = os.environ.get('WORKTREE_PATH') or '$PROJECT_PATH'
 with open('$SESSIONS_DIR/${SESSION_ID}.json','w') as f:
- json.dump({'session_id':'$SESSION_ID','start':'$NOW','last_seen':'$NOW','active_minutes':0,'project':'$PROJECT_NAME','project_path':'$PROJECT_PATH','branch':'$BRANCH','recent_commits':[],'uncommitted_changes':0},f,indent=2)
+ json.dump(rec, f, indent=2)
 "
 fi
 
