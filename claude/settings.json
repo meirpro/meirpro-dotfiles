@@ -6,7 +6,9 @@
   },
   "includeCoAuthoredBy": false,
   "permissions": {
-    "allow": [],
+    "allow": [
+      "Bash(gh issue *)"
+    ],
     "deny": [
       "Read(**/.env)",
       "Read(**/.env.local)",
@@ -21,7 +23,8 @@
       "Read(**/secrets/**)",
       "Read(**/node_modules/**)",
       "Read(**/credentials/**)"
-    ]
+    ],
+    "defaultMode": "default"
   },
   "hooks": {
     "Notification": [
@@ -187,6 +190,9 @@
       }
     ]
   },
+  "worktree": {
+    "baseRef": "fresh"
+  },
   "statusLine": {
     "type": "command",
     "command": "bash ~/.claude/statusline-command.sh"
@@ -293,6 +299,10 @@
   "advisorModel": "opus",
   "autoUpdatesChannel": "latest",
   "theme": "light",
+  "editorMode": "normal",
+  "autoCompactEnabled": true,
+  "teammateMode": "auto",
+  "inputNeededNotifEnabled": false,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
   "voiceEnabled": true
