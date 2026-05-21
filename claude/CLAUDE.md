@@ -88,14 +88,19 @@ Forked from [martinambrus/claude_timings_wrapper](https://github.com/martinambru
 
 ## After opening a PR
 
-Use `ghmp <pr-num>` (defined in `meirpro-dotfiles/shell/functions.sh`) to wait-for-CI → squash-merge → fast-forward-pull the local target branch in one shot. Two forms:
+Use `ghmp <pr-num>` (defined in `meirpro-dotfiles/shell/functions.sh`) to squash-merge a PR and ff-pull the target branch in one shot. Three forms:
 
 ```bash
-ghmp 80                          # ff-pull into the current branch
-ghmp 80 staging/partition-done   # ff-pull into the named branch
+ghmp 80                                 # current branch
+ghmp 80 staging/partition-done          # named target branch
+ghmp --wait 80 staging/partition-done   # also wait for PR-level CI
 ```
 
-Refuses to merge unless CI concludes `SUCCESS` — `FAILURE` / `CANCELLED` / `TIMED_OUT` print the failing check names and exit non-zero. Polls every 20 s. Reach for this instead of re-typing the `until gh pr view ... && gh pr merge ... && git pull --ff-only` pipeline by hand; the manual version is easy to typo (missing `--ff-only`, grep matching only `SUCCESS` so a `FAILURE` would still flow into the merge, etc.). Run `type ghmp` to confirm the function is loaded; if not, source `~/.bashrc`/`~/.zshrc` or open a fresh shell.
+**Default behavior is merge-immediately-if-mergeable**, not wait-for-CI. The user explicitly preferred this: the post-merge push to the target branch runs CI anyway (~3 min saved per PR vs. running CI twice). If post-merge CI on the target fails, we revert there.
+
+The function refuses to merge when GitHub reports the PR isn't cleanly mergeable: `CONFLICTING`, `UNKNOWN` (after retries), `MERGED`/`CLOSED`. It retries through transient `gh` 502/503 hiccups. `--wait` adds the old PR-CI-must-succeed safety net for risky branches.
+
+Run `type ghmp` to confirm the function is loaded; if not, source `~/.bashrc`/`~/.zshrc` or open a fresh shell.
 
 ## Available macOS Tools
 

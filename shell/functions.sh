@@ -225,24 +225,38 @@ unalias cld 2>/dev/null
 
 
 # ─────────────────────────────────────────────────────────────────────
-# ghmp — wait for a GitHub PR's CI, merge it (squash), then fast-forward
-# the local target branch.
+# ghmp — squash-merge a GitHub PR and fast-forward the local target
+# branch. Refuses to merge when GitHub reports the PR is not cleanly
+# mergeable (conflicts, etc.).
 #
 # Usage:
-#   ghmp <pr-num>                  # pulls into the current branch after merge
+#   ghmp <pr-num>                  # pulls into the current branch
 #   ghmp <pr-num> <local-branch>   # pulls into the named branch
+#   ghmp --wait <pr-num> [branch]  # legacy: also wait for PR-level CI
+#                                  #   to conclude SUCCESS before merging
 #
-# Refuses to merge if CI does not conclude SUCCESS. Polls every 20s.
-# Designed to live in the dotfiles so any agent (or you) can reach for
-# it instead of re-typing the `until ... && gh pr merge && git pull`
-# pipeline by hand every time.
+# Default behavior merges immediately on a green-mergeable PR — saves
+# 3-ish minutes of redundant CI (the post-merge push runs CI again on
+# the target branch anyway). Use --wait when you want the PR-level
+# safety net (e.g. a long branch you don't fully trust).
+#
+# Refuses on:
+#   - non-MERGEABLE mergeability (CONFLICTING, UNKNOWN, BEHIND)
+#   - mergeStateStatus indicating BLOCKED / DIRTY / BEHIND
+#   - --wait mode: CI conclusion ≠ SUCCESS
+# Tolerates transient gh API errors (502/503) by retrying.
 # ─────────────────────────────────────────────────────────────────────
 function ghmp() {
+	local wait_ci=0
+	if [[ "$1" == "--wait" ]]; then
+		wait_ci=1
+		shift
+	fi
 	local pr="$1"
 	local branch="${2:-$(git branch --show-current)}"
 
 	if [[ -z "$pr" ]]; then
-		echo "usage: ghmp <pr-num> [local-branch]" >&2
+		echo "usage: ghmp [--wait] <pr-num> [local-branch]" >&2
 		return 64
 	fi
 	if [[ -z "$branch" ]]; then
@@ -250,39 +264,75 @@ function ghmp() {
 		return 64
 	fi
 
-	echo "→ waiting for CI on PR #$pr"
-	# Loop until the rollup has SOMETHING terminal in it. New PRs may
-	# show empty rollup for a few seconds while Actions queues; that's
-	# why we don't trust just the first poll. Transient API failures
-	# (502/503, network blips) are tolerated — the next iteration just
-	# retries instead of exiting the caller.
-	while :; do
-		local rollup
-		if rollup=$(gh pr view "$pr" --json statusCheckRollup --jq \
-			'[.statusCheckRollup[]? | .conclusion // ""] | join(",")' 2>/dev/null); then
-			if echo "$rollup" | grep -qE "SUCCESS|FAILURE|CANCELLED|TIMED_OUT"; then
+	# 1. Check mergeability. mergeable=UNKNOWN happens briefly right after
+	# a push while GitHub recomputes — retry a few times before bailing.
+	echo "→ checking mergeability of PR #$pr"
+	local mergeable="" mergeStateStatus="" tries=0
+	while (( tries < 6 )); do
+		local view
+		if view=$(gh pr view "$pr" --json mergeable,mergeStateStatus,state 2>/dev/null); then
+			mergeable=$(echo "$view" | jq -r '.mergeable // ""')
+			mergeStateStatus=$(echo "$view" | jq -r '.mergeStateStatus // ""')
+			local state=$(echo "$view" | jq -r '.state // ""')
+			if [[ "$state" == "MERGED" ]]; then
+				echo "✓ PR #$pr already merged."
+				break
+			fi
+			if [[ "$state" == "CLOSED" ]]; then
+				echo "✗ PR #$pr is closed." >&2
+				return 1
+			fi
+			if [[ "$mergeable" != "UNKNOWN" ]]; then
 				break
 			fi
 		else
 			echo "  (gh API hiccup — retrying)" >&2
 		fi
-		sleep 20
+		(( tries++ ))
+		sleep 5
 	done
 
-	local conclusion
-	conclusion=$(gh pr view "$pr" --json statusCheckRollup --jq \
-		'[.statusCheckRollup[]? | .conclusion] | first // "EMPTY"')
-
-	if [[ "$conclusion" != "SUCCESS" ]]; then
-		echo "✗ CI conclusion: $conclusion — refusing to merge." >&2
-		gh pr view "$pr" --json statusCheckRollup --jq \
-			'.statusCheckRollup[]? | "  - \(.name // "?"): \(.conclusion // .status)"' >&2
+	if [[ "$mergeable" == "CONFLICTING" ]]; then
+		echo "✗ PR #$pr is CONFLICTING — rebase first, then re-run." >&2
+		return 1
+	fi
+	if [[ "$mergeable" != "MERGEABLE" && "$mergeable" != "" ]]; then
+		echo "✗ PR #$pr mergeable=$mergeable mergeStateStatus=$mergeStateStatus" >&2
+		echo "  Refusing to merge in an uncertain state." >&2
 		return 1
 	fi
 
+	# 2. (--wait only) wait for PR-level CI to conclude before merging.
+	if (( wait_ci )); then
+		echo "→ waiting for CI on PR #$pr (--wait mode)"
+		while :; do
+			local rollup
+			if rollup=$(gh pr view "$pr" --json statusCheckRollup --jq \
+				'[.statusCheckRollup[]? | .conclusion // ""] | join(",")' 2>/dev/null); then
+				if echo "$rollup" | grep -qE "SUCCESS|FAILURE|CANCELLED|TIMED_OUT"; then
+					break
+				fi
+			else
+				echo "  (gh API hiccup — retrying)" >&2
+			fi
+			sleep 20
+		done
+		local conclusion
+		conclusion=$(gh pr view "$pr" --json statusCheckRollup --jq \
+			'[.statusCheckRollup[]? | .conclusion] | first // "EMPTY"')
+		if [[ "$conclusion" != "SUCCESS" ]]; then
+			echo "✗ CI conclusion: $conclusion — refusing to merge." >&2
+			gh pr view "$pr" --json statusCheckRollup --jq \
+				'.statusCheckRollup[]? | "  - \(.name // "?"): \(.conclusion // .status)"' >&2
+			return 1
+		fi
+	fi
+
+	# 3. Squash-merge.
 	echo "→ merging PR #$pr (squash)"
 	gh pr merge "$pr" --squash || return $?
 
+	# 4. Fast-forward the local target branch.
 	echo "→ pulling $branch"
 	git checkout "$branch" >/dev/null 2>&1 || {
 		echo "ghmp: could not checkout $branch" >&2
