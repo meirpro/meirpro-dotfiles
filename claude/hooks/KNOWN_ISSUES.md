@@ -1015,3 +1015,185 @@ kill — there is nothing to fix in the wrapper itself.
   does NOT trigger on this failure because the wrapper is found
   on PATH and exec succeeds before Node's loader fails
 
+
+## Wrapup `wall_min` and status-line wall disagree by 3× when claude-timed PTY outlives the session_id — not flagged by `wall_unreliable`
+
+### Symptom
+
+After a long, mostly-parallel work day, a single `/wrapup` call returns
+"sensible-looking" numbers from `session_wrapup.sh`:
+
+```json
+{
+  "active_time": "10h 18m",
+  "wall_time":   "31h 42m",
+  "api_time":    "9h 6m",
+  "cost_usd":    788.656,
+  "wall_unreliable": false,
+  "commits": 109,
+  "files_changed": 282,
+  "parallel_count": 16
+}
+```
+
+…while the status line on screen shows a totally different wall:
+
+```
+📝 +13526/-1812 ⏱️  92h20m (API: 9h5m) 💰 $787.3 🧠 64% 💗 57m56s
+```
+
+`api_min` and `cost_usd` match across both sources (9h5m vs 9h6m;
+$787.30 vs $788.66 — telemetry lag). Only **wall** is dramatically
+off: 31h42m from the script vs 92h20m from the status line, a 2.9×
+gap.
+
+The script's `wall_unreliable` flag is `false`. The skill's Step 5.5
+reconciliation logic only fires when `wall_unreliable: true` OR
+`wall_min <= 2`, neither of which is true here — so an agent following
+the skill verbatim doesn't realise the disagreement exists unless the
+user volunteers the status-line numbers.
+
+### Observed case (2026-05-21, session `2b436711-b718-46cf-bd3b-ed1c0d71abcd`)
+
+- Project: `compose-modal-consistency` (a git worktree of
+  `crm.sweetrobo.com`).
+- Session lifetime per `~/.claude/sessions/<sid>.json`:
+  `start: 2026-05-19T16:04:22Z`, `last_seen: 2026-05-20T22:40:34Z` →
+  `end - start ≈ 31h 42m`. The script reports exactly this.
+- Active minutes from heartbeat: `active_minutes: 245` (file)
+  reconciled to `618` (10h 18m) after the script adjusted for the
+  segment.
+- 16 other sessions overlapped per `parallel_with` — the user had
+  multiple Claude Code agents running on the same machine, sharing
+  the same terminal lineage but with different session UUIDs.
+- The status line, produced by `claude-timed` reading
+  `~/.claude/timings/*.jsonl`, showed `92h20m` — the cumulative
+  lifetime of the PTY wrapper, which had been auto-resuming across
+  multiple Claude Code session_id boundaries since the terminal was
+  first opened.
+- API minutes match: 9h5m (status line) ≈ 9h6m (script). Cost
+  matches: $787.30 (status line) ≈ $788.66 (script). So the API
+  side of telemetry is consistent; only `wall` diverges, because
+  wall is defined differently by the two systems:
+  - `session_wrapup.sh` wall = `end - start` of the resolved
+    `session_id` (one Claude Code conversation).
+  - `claude-timed` wall = PTY wrapper lifetime (terminal-scoped,
+    spans multiple Claude Code invocations).
+
+### Secondary observation — `commits` count overstates the chat's contribution
+
+Same session reported `commits: 109` and `files_changed: 282`. The
+chat actually shipped ~10 PRs (the 2026-05-20 mass-send incident
+response). The other ~99 commits and ~265 file changes came from
+parallel agents working on the same project's `main` branch during
+the same 31h window — payments work, customer-detail features,
+forms gating, the cap-tightening PR series, etc.
+
+The script computes `commits` via `git log --since=<start>` against
+the project's main branch. That returns every commit on main in the
+window, regardless of which session authored it. With heavy parallel-
+agent usage, the headline "commits this segment" misleads — it
+sounds like "what this chat shipped" but actually means "what landed
+on main while this chat was alive".
+
+### Impact
+
+- **An agent following the wrapup skill verbatim** will display the
+  script's 31h42m as the headline wall, omitting the status-line
+  92h20m, and the user reading the wrapup output is left to
+  reconcile the disagreement themselves.
+- **The user's mental model is the status line** — that's what they
+  see in their terminal at all times. When the wrapup report
+  contradicts the status line by a factor of ~3, trust in the time-
+  tracking subsystem erodes.
+- **Multi-segment cost accounting compounds the issue.** If wall is
+  consistently understated by a factor of ~3 across many wrapups,
+  any per-hour spend or per-hour throughput metric derived from
+  `time-log.jsonl` is also off by ~3× on the wall axis.
+- **`commits` overstatement** isn't catastrophic but it inflates
+  per-segment productivity metrics. A wrapup that claims "109
+  commits in 31h" reads as 3.5 commits/hr when the chat itself was
+  closer to 0.3 commits/hr — the bulk was parallel.
+
+### Hypothesis — mechanism
+
+Two separate wall-clock definitions, neither wrong:
+
+1. **`session_id` lifetime** (script): from `start` to `last_seen`
+   in the session file. Bounded by the `/clear`, `/exit`, or any
+   action that mints a new session_id. Reflects "how long this
+   specific conversation has been alive."
+2. **PTY wrapper lifetime** (claude-timed): from when `claude-timed`
+   first attached to this terminal to now. NOT bounded by
+   session_id resets — the wrapper survives a new `claude` invocation
+   inside the same terminal because the wrapper holds the PTY, not
+   the Claude process. Reflects "how long this terminal window has
+   been hosting Claude work."
+
+When a user opens a terminal, runs `cld` once, then has multiple
+Claude Code sessions over hours of idle + activity, the two
+diverge. Neither system is broken; they answer different questions.
+The skill text doesn't make this distinction clear, so the script's
+heuristic for "wall_unreliable" doesn't catch the discrepancy.
+
+### Mitigations — ideas, not yet implemented
+
+1. **Script-level**: have `session_wrapup.sh` ALSO read
+   `~/.claude/timings/.current-session`, locate the active jsonl,
+   sum its `agent_work_ms + typing_ms + idle_ms` since the segment's
+   `start`, and surface that as `pty_wall_min` alongside
+   `session_wall_min`. When they disagree by more than 1.5×, set
+   `wall_unreliable: true` and include both in the report.
+   - Footgun (raised by user in this session): the
+     `.current-session` pointer file is NOT reliable when multiple
+     agents are touching it — observed in 2026-05-21 that 2+
+     agents overwrote each other's pointer mid-session. So the
+     script can't just trust the pointer; it would need to find
+     the right jsonl by matching cwd or session_id from event
+     bodies inside the candidate jsonls.
+
+2. **Skill-level**: update the wrapup skill's Step 5.5 wording so
+   it ALWAYS surfaces both numbers when they exist, not just when
+   the script flags `wall_unreliable`. Something like:
+   "Display script's `wall_min` AND the status-line wall side by
+   side, annotated `(session lifetime)` and `(PTY lifetime)`
+   respectively. Ask the user if there's a meaningful gap."
+
+3. **`commits` accuracy**: filter `git log --since=<start>` by
+   author email (the session file already has the active git user)
+   so the headline reflects "commits this chat authored" rather
+   than "commits that landed on main while this chat was alive."
+   Optionally surface BOTH counts so the parallel-work context
+   isn't lost: `commits_authored: 10, commits_on_main: 109`.
+
+4. **Status line as the canonical wall**: change the script to
+   PREFER the PTY wall when claude-timed data is reliably
+   findable, and fall back to session-file wall only when it
+   isn't. Display the chosen source explicitly in the output so
+   the user can audit.
+
+### Related files
+
+- `~/Documents/GitHub/meirpro-dotfiles/claude/hooks/session_wrapup.sh`
+  — computes `wall_min` from session_file `end - start`
+- `~/Documents/GitHub/meirpro-dotfiles/claude/hooks/session_wrapup_skill.md`
+  (or wherever the `/wrapup` skill text lives) — Step 5.5 needs
+  to be widened per Mitigation 2
+- `~/Documents/GitHub/claude_timings_wrapper/bin/claude-timed.mjs`
+  — emits the events claude-timed sums into the status line wall
+- `~/.claude/timings/.current-session` — pointer file that is
+  itself unreliable under parallel-agent usage (see secondary
+  symptom)
+
+### Related issues in this file
+
+- "Statusline `wall_duration_ms` inflated ~10× over real session
+  wall time" (2026-04-22) — symmetric inversion: status line WAY
+  bigger than reality. This issue is the more benign cousin: the
+  status line is bigger but defensibly so, just measuring something
+  different.
+- "`session_id` is not a 1:1 identifier for 'one chat' — multiple
+  writers share it" (2026-05-08) — related to the `commits`
+  overstatement: when the session_id isn't a clean boundary,
+  derived metrics built on it leak in/out.
+
