@@ -223,3 +223,70 @@ function cld() {
 # Unset the alias version of cld if it exists (since aliases load before functions)
 unalias cld 2>/dev/null
 
+
+# ─────────────────────────────────────────────────────────────────────
+# ghmp — wait for a GitHub PR's CI, merge it (squash), then fast-forward
+# the local target branch.
+#
+# Usage:
+#   ghmp <pr-num>                  # pulls into the current branch after merge
+#   ghmp <pr-num> <local-branch>   # pulls into the named branch
+#
+# Refuses to merge if CI does not conclude SUCCESS. Polls every 20s.
+# Designed to live in the dotfiles so any agent (or you) can reach for
+# it instead of re-typing the `until ... && gh pr merge && git pull`
+# pipeline by hand every time.
+# ─────────────────────────────────────────────────────────────────────
+function ghmp() {
+	local pr="$1"
+	local branch="${2:-$(git branch --show-current)}"
+
+	if [[ -z "$pr" ]]; then
+		echo "usage: ghmp <pr-num> [local-branch]" >&2
+		return 64
+	fi
+	if [[ -z "$branch" ]]; then
+		echo "ghmp: no target branch (not on a branch and no second arg)" >&2
+		return 64
+	fi
+
+	echo "→ waiting for CI on PR #$pr"
+	# Loop until the rollup has SOMETHING terminal in it. New PRs may
+	# show empty rollup for a few seconds while Actions queues; that's
+	# why we don't trust just the first poll. Transient API failures
+	# (502/503, network blips) are tolerated — the next iteration just
+	# retries instead of exiting the caller.
+	while :; do
+		local rollup
+		if rollup=$(gh pr view "$pr" --json statusCheckRollup --jq \
+			'[.statusCheckRollup[]? | .conclusion // ""] | join(",")' 2>/dev/null); then
+			if echo "$rollup" | grep -qE "SUCCESS|FAILURE|CANCELLED|TIMED_OUT"; then
+				break
+			fi
+		else
+			echo "  (gh API hiccup — retrying)" >&2
+		fi
+		sleep 20
+	done
+
+	local conclusion
+	conclusion=$(gh pr view "$pr" --json statusCheckRollup --jq \
+		'[.statusCheckRollup[]? | .conclusion] | first // "EMPTY"')
+
+	if [[ "$conclusion" != "SUCCESS" ]]; then
+		echo "✗ CI conclusion: $conclusion — refusing to merge." >&2
+		gh pr view "$pr" --json statusCheckRollup --jq \
+			'.statusCheckRollup[]? | "  - \(.name // "?"): \(.conclusion // .status)"' >&2
+		return 1
+	fi
+
+	echo "→ merging PR #$pr (squash)"
+	gh pr merge "$pr" --squash || return $?
+
+	echo "→ pulling $branch"
+	git checkout "$branch" >/dev/null 2>&1 || {
+		echo "ghmp: could not checkout $branch" >&2
+		return 1
+	}
+	git pull --ff-only && git log --oneline -3
+}

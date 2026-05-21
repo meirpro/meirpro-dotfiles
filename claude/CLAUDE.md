@@ -86,6 +86,17 @@ Forked from [martinambrus/claude_timings_wrapper](https://github.com/martinambru
 
   Don't chmod or re-symlink — that's not the problem. After the kill, retry the next tool call; it'll succeed once the new tccd reads permissions cleanly.
 
+## After opening a PR
+
+Use `ghmp <pr-num>` (defined in `meirpro-dotfiles/shell/functions.sh`) to wait-for-CI → squash-merge → fast-forward-pull the local target branch in one shot. Two forms:
+
+```bash
+ghmp 80                          # ff-pull into the current branch
+ghmp 80 staging/partition-done   # ff-pull into the named branch
+```
+
+Refuses to merge unless CI concludes `SUCCESS` — `FAILURE` / `CANCELLED` / `TIMED_OUT` print the failing check names and exit non-zero. Polls every 20 s. Reach for this instead of re-typing the `until gh pr view ... && gh pr merge ... && git pull --ff-only` pipeline by hand; the manual version is easy to typo (missing `--ff-only`, grep matching only `SUCCESS` so a `FAILURE` would still flow into the merge, etc.). Run `type ghmp` to confirm the function is loaded; if not, source `~/.bashrc`/`~/.zshrc` or open a fresh shell.
+
 ## Available macOS Tools
 
 - **CleanShot X** — screenshot and screen recording app with a built-in editor for annotations, censoring, and cropping. Open images for editing with `open -a "CleanShot X" <path>`. Useful for censoring sensitive data (names, emails) in screenshots before committing. User saves the edited file via CleanShot's "Save As" dialog.
