@@ -264,11 +264,14 @@ function ghmp() {
 		return 64
 	fi
 
-	# 1. Check mergeability. mergeable=UNKNOWN happens briefly right after
-	# a push while GitHub recomputes — retry a few times before bailing.
+	# 1. Check mergeability. Right after a push GitHub takes a moment to
+	# recompute — observed sequence: UNKNOWN → momentary CONFLICTING →
+	# MERGEABLE. We give CONFLICTING and UNKNOWN a short grace period
+	# (12× 5 s = 1 min total) so the flicker doesn't bail us out
+	# prematurely; a real conflict will still be reported.
 	echo "→ checking mergeability of PR #$pr"
 	local mergeable="" mergeStateStatus="" tries=0
-	while (( tries < 6 )); do
+	while (( tries < 12 )); do
 		local view
 		if view=$(gh pr view "$pr" --json mergeable,mergeStateStatus,state 2>/dev/null); then
 			mergeable=$(echo "$view" | jq -r '.mergeable // ""')
@@ -282,7 +285,10 @@ function ghmp() {
 				echo "✗ PR #$pr is closed." >&2
 				return 1
 			fi
-			if [[ "$mergeable" != "UNKNOWN" ]]; then
+			# Stable enough to act on: MERGEABLE → proceed. CONFLICTING
+			# only after the grace window has expired (still flickering
+			# from a recent push otherwise).
+			if [[ "$mergeable" == "MERGEABLE" ]]; then
 				break
 			fi
 		else
@@ -296,7 +302,7 @@ function ghmp() {
 		echo "✗ PR #$pr is CONFLICTING — rebase first, then re-run." >&2
 		return 1
 	fi
-	if [[ "$mergeable" != "MERGEABLE" && "$mergeable" != "" ]]; then
+	if [[ "$mergeable" != "MERGEABLE" ]]; then
 		echo "✗ PR #$pr mergeable=$mergeable mergeStateStatus=$mergeStateStatus" >&2
 		echo "  Refusing to merge in an uncertain state." >&2
 		return 1
