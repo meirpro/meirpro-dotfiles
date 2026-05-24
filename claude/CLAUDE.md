@@ -9,6 +9,31 @@
 - Don't use placeholder or "coming soon" code — always implement full functionality.
 - Format code with the project's formatter (Prettier, etc.) after editing files.
 - **Write tests alongside implementation, not after** — write or update tests as you build, not as a separate follow-up step. Tests written after the fact tend to just confirm what the code already does rather than validating correctness.
+
+## Time Estimates — always give both human and AI
+
+Whenever you quote a time estimate for a task (in TODO docs, scope discussions, planning replies, anywhere it would help me decide what to hand off vs do myself), give **both** numbers, every time:
+
+- **Human:** developer-hours assuming the real workflow — read code, decide, type, run CI between iterations, second-guess naming, switch contexts, get pulled into Slack mid-task. This is what you'd quote a teammate.
+- **AI:** wall-clock minutes for a Claude Code session, bounded by tool roundtrips, file reads/writes, and tsc/test runs. The clock starts when you have a clear directive and stops when the work is committed and verified.
+
+Format: `~2-4 h human / ~20 min AI`, or for backlog items inside `🟢 / 🟡 / 🔴` annotations: `🟢 ~30 min human / ~5 min AI`.
+
+**Both estimates are workload-based, not a fixed conversion ratio.** What compresses vs what doesn't:
+
+- **Compresses dramatically for AI** (typing, mechanical refactors across many files, regenerating boilerplate, running tsc/test loops, writing test fixtures, navigating large codebases via grep).
+- **Compresses moderately** (deciding where a new module belongs, naming, working out an API surface — still faster but you do think before typing).
+- **Doesn't compress at all**:
+  - Real-device verification (iPhone/Android perf, actual touch handling).
+  - External coordination (email to vendor, WhatsApp to publisher, OAuth setup with a third party).
+  - Migration verification that requires watching real user data behave across sync.
+  - Anything where the bottleneck is "wait for human to look at this and decide" or "wait for CI to deploy and then poke the staging URL."
+  - Long debugging sessions where the answer requires accumulated context about *this specific user's* setup or data.
+
+For tasks where AI cannot meaningfully compress, write `AI: n/a — verification only` or `AI: ~5 min prep, then human` so the dual format stays consistent.
+
+**Don't sandbag the AI number.** If the work is mechanical and ~15 minutes is the honest estimate, say 15 minutes — don't pad to feel safer. The whole point of the dual format is that the user can decide quickly which tasks are worth picking up themselves vs handing off.
+
 ## Git Safety
 
 > ⚠ **The four staging rules below are ENFORCED at the binary level by
