@@ -49,38 +49,53 @@ Extract these fields:
 
 **Sanity check — MUST pass before proceeding past this step:**
 
-1. `$SID` must be a valid UUID, NOT the literal string `${CLAUDE_SESSION_ID}`. If Claude Code didn't substitute (older versions may not), the token will still be there verbatim — in that case, fall back to the resolver below.
-2. The session file MUST exist at `~/.claude/sessions/$SID.json`. If missing, tell the user "No session file for $SID" and stop.
-3. The file's `project_path` MUST equal `$PWD` (case-insensitive). If it doesn't, STOP and report the mismatch — something is inconsistent and wrapping up would mislabel the work.
+1. `$SID` must be a valid UUID, NOT the literal string `${CLAUDE_SESSION_ID}`. If Claude Code didn't substitute (older versions may not), the token will still be there verbatim — in that case, **ask the user for the first 8 chars of their session ID** (visible in their Claude Code status bar). Do not silently pick a different session.
+2. The session file MUST exist at `~/.claude/sessions/$SID.json`. If missing, **retry 3× with 1 s sleeps** — the heartbeat hook creates it lazily on the first Stop hook, so the file may not exist yet at the moment `/wrapup` starts. After retries, if still missing, see "Lazy file race" below.
+3. The file's `project_path` MUST equal `$PWD` (case-insensitive). If it's `"?"`, the heartbeat hook hadn't populated it yet — **rewrite the file's `project_path` to `$PWD` and proceed** (the substituted SID is ground truth; an unpopulated `project_path` doesn't override that). If it's a different real path (not `?`), STOP and report the mismatch.
 
-#### Fallback resolver (only if the substitution above didn't expand)
+#### Lazy file race — the heartbeat sometimes creates the session file AFTER `/wrapup` starts
 
-If `$SID` literally contains `${CLAUDE_SESSION_ID}` (unexpanded), use this deterministic resolver. **Never use `ls -t` to pick the most-recent file** — parallel sessions and stale heartbeats make that unreliable.
+Empirically observed: on a fresh process, the first turn of `/wrapup` can fire before the heartbeat hook has written `~/.claude/sessions/$SID.json`. The skill USED to silently fall back to a PWD-based resolver and pick an adjacent session (wrong cost, wrong start time, wrong everything). **Never do that.** Instead:
+
+1. Retry `cat` 3× with 1 s sleeps to let a slow heartbeat finish writing.
+2. If still missing, **create a minimal stub yourself** so the wrapup script has something to anchor to:
+   ```bash
+   python3 - <<EOF
+   import json, os
+   from datetime import datetime, timezone
+   path = os.path.expanduser(f"~/.claude/sessions/$SID.json")
+   if not os.path.exists(path):
+       now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+       json.dump({
+           "session_id": "$SID",
+           "start": now,
+           "last_seen": now,
+           "active_minutes": 0,
+           "project_path": "$PWD",
+           "project": os.path.basename("$PWD".rstrip("/")) or "?",
+           "branch": "$BRANCH",
+           "recent_commits": [],
+           "uncommitted_changes": 0,
+       }, open(path, "w"), indent=2)
+   EOF
+   ```
+3. Mark `wall_unreliable: true` in your eventual report — the wrapup script's `wall_min` will be ~0 because the stub `start` is "now". Reconcile against the status line per Step 5.5.
+
+#### Fallback resolver (only if the substitution above truly didn't expand)
+
+If `$SID` literally contains `${CLAUDE_SESSION_ID}` (unexpanded), **don't guess** — the status bar in Claude Code shows the first 8 chars of the session ID. Ask the user:
+
+> Couldn't read the session ID. Your Claude Code status bar shows the first 8 chars of the session — could you paste them? (e.g. `e4a7e8bc`)
+
+Then match exactly one file under `~/.claude/sessions/`:
 
 ```bash
-python3 -c '
-import json, os, glob
-pwd = os.getcwd().lower()
-best, best_ts = None, ""
-for f in glob.glob(os.path.expanduser("~/.claude/sessions/*.json")):
-    try:
-        d = json.load(open(f))
-        pp = (d.get("project_path") or d.get("cwd") or "").lower()
-        if pp == pwd:
-            ls = d.get("last_seen") or d.get("start") or ""
-            if ls > best_ts:
-                best_ts = ls; best = f
-    except Exception: pass
-print(best or "")
-'
+ls ~/.claude/sessions/<first-8-chars>*.json
 ```
 
-Rules for the fallback:
-- **Zero matches** → tell the user "No session being tracked for $PWD" and stop.
-- **Exactly one match** → use it.
-- **Multiple matches** → the resolver picks the one with highest `last_seen`.
+Zero matches → "No session file matching `<prefix>`" and stop. Multiple matches → ask the user for more characters. Exactly one match → use it.
 
-Then `cat` the resolved file and apply the same sanity check (`project_path == $PWD`).
+**Never use `ls -t`** and **never fall back to PWD-resolution silently** — parallel sessions and a lazy heartbeat make adjacent-session selection a foot-gun. Mislabeled wrapups carry wrong cost/time numbers and pollute `time-log.jsonl`.
 
 ### Step 2 — Read wrapper timing (if available)
 
