@@ -90,21 +90,63 @@ case "$SUBCMD" in
     *) exec "$REAL_GIT" "$@" ;;
 esac
 
-# Reconstruct the *original shell command line* if available. Bash sets
-# $BASH_COMMAND for traps but not for child processes; the canonical
-# read here is /proc/$PPID/cmdline (Linux) or `ps` (macOS). We need
-# this to enforce rule #4/#5 — "git add must be chained with git commit
-# in the SAME shell command". Without the parent's command line we
-# can't tell a one-liner from a split call.
+# Reconstruct the *original shell command line* if available. Three
+# sources, tried in this order:
+#
+#   1. /proc/$PPID/cmdline on Linux — has the pipeline literally.
+#   2. ~/.cache/safe-git-cmd-<ppid> written by the shell-init hook
+#      (meirpro-dotfiles/shell/safe-git-hook.sh). This is how macOS
+#      interactive shells expose what the user typed — `ps -o command=`
+#      on the shell's own PID only shows `-bash`/`-zsh`, not the
+#      pipeline being executed. The hook captures `history 1` on every
+#      DEBUG trap (bash) or via `preexec` (zsh) and writes it to a
+#      per-shell file. We trust the file only if its mtime is fresh
+#      (≤ 10 seconds) so a stale capture from a prior pipeline can't
+#      let a split call sneak through. We walk the PID ancestry so
+#      that subshell invocations like `(git add foo && git commit bar)`
+#      still find the outer shell's capture.
+#   3. macOS fallback — `ps -o command= -p $PPID`. This works for
+#      `bash -c '<pipeline>'` invocations because the pipeline is the
+#      bash-c argv literally. Used by Claude Code's Bash tool and any
+#      shell-script invocation; doesn't help interactive shells.
+#
+# Without any of these we conservatively return nothing, which causes
+# the rule checks to NOT fire (allow) — the wrapper's job is to catch
+# obvious foot-guns, not to deny every command when introspection
+# fails.
 get_parent_cmdline() {
     local ppid="$PPID"
     [ -z "$ppid" ] && return 1
+
+    # 1. Linux: PPID's cmdline shows the full pipeline.
     if [ -r "/proc/$ppid/cmdline" ]; then
-        # Linux: NUL-separated argv
         tr '\0' ' ' < "/proc/$ppid/cmdline"
         return 0
     fi
-    # macOS — read full cmd via ps. -ww disables truncation.
+
+    # 2. Shell-init hook capture. Walk ancestors so subshells inherit
+    #    the outer shell's typed line.
+    local now p hook_file mtime age
+    now="$(date +%s 2>/dev/null)"
+    p="$ppid"
+    while [ -n "$p" ] && [ "$p" != "1" ] && [ "$p" != "0" ]; do
+        hook_file="$HOME/.cache/safe-git-cmd-$p"
+        if [ -f "$hook_file" ] && [ -n "$now" ]; then
+            # macOS stat (-f %m) with Linux stat (-c %Y) fallback.
+            mtime="$(stat -f %m "$hook_file" 2>/dev/null || stat -c %Y "$hook_file" 2>/dev/null)"
+            if [ -n "$mtime" ]; then
+                age=$((now - mtime))
+                if [ "$age" -ge 0 ] && [ "$age" -le 10 ]; then
+                    cat "$hook_file" 2>/dev/null
+                    return 0
+                fi
+            fi
+        fi
+        # Walk one step up the process tree.
+        p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"
+    done
+
+    # 3. macOS PS fallback — works for `bash -c '<pipeline>'`.
     if command -v ps >/dev/null 2>&1; then
         ps -ww -o command= -p "$ppid" 2>/dev/null
         return 0
@@ -128,6 +170,14 @@ $explain
 
  Bypass (use sparingly):
    GIT_UNSAFE_STAGE=1 git $(printf '%q ' "$@" | sed 's/ $//')
+
+   Note: env-var prefix only applies to the FIRST command. To bypass
+   an \`add && commit\` chain, wrap both in one bash -c:
+     GIT_UNSAFE_STAGE=1 bash -c 'git add <file> && git commit -m "msg"'
+
+   Or use bash -c WITHOUT bypass — the wrapper sees the pipeline in
+   bash's argv and allows the chain natively:
+     bash -c 'git add <file> && git commit -m "msg"'
 
  Disable wrapper entirely:
    /opt/homebrew/bin/git ...   # call real git by full path
