@@ -158,10 +158,23 @@ broken).
 **Segment** (this wrapup window — from `last_wrapup` to now): comes from the
 script's structured JSON output. Goes into `time-log.jsonl`. Always shown.
 
-**Session totals** (cumulative since process start): comes from the user's
-Claude Code status line (e.g. `61h24m (API: 13m55s) 💰 $33.1`). Always shown
-when the user has volunteered the figures OR when Step 5.5 reconciliation
-fired. If neither, write "ask user for status-line figures" in that block.
+**Session totals** (cumulative since process start): the status line shows
+these (e.g. `61h24m (API: 13m55s) 💰 $33.1`), but the SAME numbers are
+usually already in the session file at `telemetry.live.{wall_duration_ms,
+api_duration_ms, cost_usd}` — that block is populated by the same upstream
+data the status line reads. **Use the session file first; only ask the user
+if it's stale or absent.** Resolution order:
+
+1. If session file has `telemetry.live` AND `telemetry.live.last_updated` is
+   within the last 10 minutes of now: derive session totals from those fields
+   (`wall_duration_ms / 60000` → wall min, `api_duration_ms / 60000` → API
+   min, `cost_usd` → cost). No need to ask the user. This is the common path.
+2. Else if the user has volunteered status-line figures this turn: use those.
+3. Else if Step 5.5 reconciliation fired: use those.
+4. Else: write "ask user for status-line figures" in that block.
+
+Do NOT default to asking. The session file usually has the answer — check it
+before generating any "ask user" placeholder in the output.
 
 Format:
 
