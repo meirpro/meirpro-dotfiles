@@ -58,28 +58,12 @@ Extract these fields:
 Empirically observed: on a fresh process, the first turn of `/wrapup` can fire before the heartbeat hook has written `~/.claude/sessions/$SID.json`. The skill USED to silently fall back to a PWD-based resolver and pick an adjacent session (wrong cost, wrong start time, wrong everything). **Never do that.** Instead:
 
 1. Retry `cat` 3× with 1 s sleeps to let a slow heartbeat finish writing.
-2. If still missing, **create a minimal stub yourself** so the wrapup script has something to anchor to:
+2. If still missing, **prefer synthesizing from the transcript** over stubbing with `now`. Claude Code always writes a JSONL transcript at `~/.claude/projects/<encoded-cwd>/$SID.jsonl` independent of any user hook — it has real first/last timestamps, token usage, model id, project path, and branch. The `transcript_to_session.py` script does the parsing:
    ```bash
-   python3 - <<EOF
-   import json, os
-   from datetime import datetime, timezone
-   path = os.path.expanduser(f"~/.claude/sessions/$SID.json")
-   if not os.path.exists(path):
-       now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-       json.dump({
-           "session_id": "$SID",
-           "start": now,
-           "last_seen": now,
-           "active_minutes": 0,
-           "project_path": "$PWD",
-           "project": os.path.basename("$PWD".rstrip("/")) or "?",
-           "branch": "$BRANCH",
-           "recent_commits": [],
-           "uncommitted_changes": 0,
-       }, open(path, "w"), indent=2)
-   EOF
+   python3 ~/.claude/hooks/transcript_to_session.py synthesize "$SID"
    ```
-3. Mark `wall_unreliable: true` in your eventual report — the wrapup script's `wall_min` will be ~0 because the stub `start` is "now". Reconcile against the status line per Step 5.5.
+   The script writes `~/.claude/sessions/$SID.json` with real `start` / `last_seen` / `project_path` / `branch` / token totals. **Wall and active become real**; cost stays unknown (the transcript has no native `cost_usd` field, and token-based estimates were 4× off in testing — see `cost_unrecoverable_reason` in the synth block).
+3. If even the transcript is missing (`transcript_to_session.py find-transcript "$SID"` prints empty), fall back to writing a `now`-anchored stub. Mark `wall_unreliable: true` in your report and reconcile against the status line per Step 5.5.
 
 #### Fallback resolver (only if the substitution above truly didn't expand)
 
@@ -166,26 +150,47 @@ So:
 
 ### Step 6 — Display the report
 
-Parse the JSON output and format as below. When Step 5.5 applied, show the
-status-line numbers as the headline figures and annotate the structured ones:
+The report has TWO sections so the user never confuses segment numbers with
+session totals (real bug from before this split — users compared the wrapup
+output to their status line, saw smaller numbers, thought the wrapup was
+broken).
+
+**Segment** (this wrapup window — from `last_wrapup` to now): comes from the
+script's structured JSON output. Goes into `time-log.jsonl`. Always shown.
+
+**Session totals** (cumulative since process start): comes from the user's
+Claude Code status line (e.g. `61h24m (API: 13m55s) 💰 $33.1`). Always shown
+when the user has volunteered the figures OR when Step 5.5 reconciliation
+fired. If neither, write "ask user for status-line figures" in that block.
+
+Format:
 
 ```
 --- Session Wrapup ---
 Project:     <project>
 Branch:      <branch>
 Segment:     <N>
-Active time: <status-line wall>   (script saw <wall_min>m — session-file gap)
-Wall time:   <status-line wall>   (worktree: no session file; see note)
-API time:    <api_time>           ✓ (telemetry — trustworthy)
-Cost:        $<cost_usd>           ✓ (telemetry — trustworthy)
-Commits:     <N or "git log count">
-Summary:     <text incl. embedded authoritative numbers>
+
+This segment (since <last_wrapup>):
+  Wall:    <wall_min>m
+  Active:  <active_min>m
+  API:     <api_min>m
+  Cost:    $<cost_usd>
+  Commits: <count>
+
+Session totals (status line):
+  Wall:    <status-line wall>
+  API:     <status-line api>
+  Cost:    $<status-line cost>
+
+Summary:     <segment summary>
 Logged to:   ~/.claude/time-log.jsonl
 ---
 ```
 
-When the session file WAS present and valid, omit the parentheticals and use
-the structured fields directly.
+When Step 5.5 applied (session file was a stub or missing), prepend each
+unreliable structured number with `(stub: ...)` and add a note that the
+segment block uses transcript-derived figures where possible.
 
 ## Rules
 
