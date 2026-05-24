@@ -84,9 +84,9 @@ while [ $i -le $# ]; do
     i=$((i + 1))
 done
 
-# Only interesting subcommands: add, commit. Everything else passes through.
+# Only interesting subcommands: add, commit, reset. Everything else passes through.
 case "$SUBCMD" in
-    add|commit) ;;
+    add|commit|reset) ;;
     *) exec "$REAL_GIT" "$@" ;;
 esac
 
@@ -214,6 +214,56 @@ if [ "$SUBCMD" = "commit" ]; then
             deny "'git commit' must be preceded by 'git add <files>' in the same shell command." \
                 "Why: a bare 'git commit' ships whatever was staged on a prior turn — possibly by another agent. Combine stage + commit:
    git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@"
+        fi
+    fi
+fi
+
+# ─────────────────────────────────────────────────────────────────
+# Rule 6: subcommand == reset
+# ─────────────────────────────────────────────────────────────────
+# `git reset --hard` discards uncommitted working-tree changes
+# silently. When multiple Claude sessions or agents share a checkout
+# (the normal case in this repo), one agent's "fast-forward to merged
+# origin" can blow away another agent's in-flight WIP — exactly the
+# pattern that wiped 300+ lines of manifest code on 2026-05-24 when
+# a parallel agent ran `git reset --hard origin/staging/partition-done`
+# after merging PR #85. Refuse `reset --hard` whenever the working
+# tree (or index) has uncommitted changes; force the caller to deal
+# with the WIP explicitly first.
+if [ "$SUBCMD" = "reset" ]; then
+    saw_hard=0
+    for a in "$@"; do
+        case "$a" in
+            --hard) saw_hard=1 ;;
+        esac
+    done
+
+    if [ "$saw_hard" = "1" ]; then
+        # Check for any uncommitted change: staged, unstaged, OR
+        # untracked. Untracked matters because `reset --hard <ref>`
+        # itself doesn't delete untracked files, BUT a typical
+        # "clean slate" sequence pairs it with `git clean -fd` which
+        # does — so we surface the dirty state regardless and let
+        # the caller make an informed choice.
+        DIRTY="$("$REAL_GIT" status --porcelain 2>/dev/null || true)"
+        if [ -n "$DIRTY" ]; then
+            COUNT=$(printf '%s\n' "$DIRTY" | wc -l | tr -d ' ')
+            FILES="$(printf '%s\n' "$DIRTY" | head -6 | sed 's/^/   /')"
+            EXTRA=""
+            if [ "$COUNT" -gt 6 ]; then
+                EXTRA="$(printf '%s\n' "   ... and $((COUNT - 6)) more")"
+            fi
+            deny "'git reset --hard' with uncommitted changes in the working tree." \
+                "Why: --hard silently throws away unstaged + staged work. If a parallel agent / sibling session is mid-edit on these files, you would erase their WIP without warning.
+
+ Dirty files ($COUNT):
+$FILES
+$EXTRA
+
+ Resolve first:
+   1. If the WIP is yours and unneeded:    git stash -u   (then 'git stash drop' later — NOT 'git stash pop' if you've already reset)
+   2. If you want it to survive:           git stash -u && git reset --hard <ref> && git stash pop
+   3. If you don't know whose WIP it is:   stop and ask the user — another session may be active." "$@"
         fi
     fi
 fi
