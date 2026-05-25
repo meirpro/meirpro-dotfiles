@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# ghmp wrapper — exposes the ghmp shell function as an executable on PATH so
+# non-interactive shells (subagents, CI helpers, ad-hoc one-liners) can call
+# it without needing to source ~/.bashrc / ~/.zshrc first.
+#
+# The function definition itself lives in functions.sh next to this script
+# (single source of truth). This wrapper just sources it and dispatches.
+#
+# Designed to be symlinked into PATH (e.g. ~/bin/ghmp → this script). The
+# source path is resolved relative to the wrapper's real location, so the
+# whole meirpro-dotfiles repo can be checked out anywhere.
+
+# Intentionally NOT using `set -e` — the sourced dotfile contains shell
+# bootstrapping commands (e.g. `unalias`) that legitimately fail in a fresh
+# subshell. Failures inside `ghmp` itself are surfaced by its own return code.
+
+# Resolve the wrapper's real location even when invoked via a symlink, so we
+# can find functions.sh sitting next to it. Uses readlink chain-walk for
+# portability (macOS readlink lacks -f in older versions; BSD coreutils
+# isn't guaranteed).
+SELF="${BASH_SOURCE[0]}"
+while [[ -L "$SELF" ]]; do
+  target="$(readlink "$SELF")"
+  case "$target" in
+    /*) SELF="$target" ;;
+    *) SELF="$(cd "$(dirname "$SELF")" && pwd)/$target" ;;
+  esac
+done
+SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+
+SOURCE="${SELF_DIR}/functions.sh"
+
+if [[ ! -f "$SOURCE" ]]; then
+  echo "ghmp: cannot find dotfile at $SOURCE" >&2
+  echo "      Either restore the meirpro-dotfiles checkout or update this wrapper." >&2
+  exit 127
+fi
+
+# shellcheck disable=SC1090
+source "$SOURCE"
+
+if ! declare -F ghmp >/dev/null; then
+  echo "ghmp: dotfile sourced but no ghmp() function defined in $SOURCE" >&2
+  exit 127
+fi
+
+ghmp "$@"
