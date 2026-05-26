@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>pro.meir.cc.wrapup-worker</string>
+
+    <!-- Script resolves $HOME via bash so this plist is portable.
+         Log paths cannot be shell-expanded by launchd; adjust them if your
+         home directory is not /Users/lightwing. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>$HOME/.claude/hooks/wrapup-worker.sh</string>
+    </array>
+
+    <!-- Fire instantly whenever any queue file is written/changed.
+         The enqueue hook drops a queue file → launchd picks it up in
+         ~1s → worker decides whether scheduled_at has arrived. -->
+    <key>WatchPaths</key>
+    <array>
+        <string>/Users/lightwing/.claude/wrapups/queue</string>
+    </array>
+
+    <!-- 10-minute polling backstop: for queue entries whose scheduled_at
+         is in the future (Stop hook's 10-min debounce), WatchPaths only
+         fires once at enqueue time. We need StartInterval to come back
+         when the time arrives. Worst-case latency: ~10 min after debounce. -->
+    <key>StartInterval</key>
+    <integer>600</integer>
+
+    <!-- Run immediately on load so any backlog from a previous boot is
+         processed. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Periodic job, not a daemon. -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Capture worker stdout/stderr. worker.sh logs to ~/.claude/wrapups/worker.log
+         already; these capture anything that escapes the log redirect. -->
+    <key>StandardOutPath</key>
+    <string>/Users/lightwing/Library/Logs/pro.meir.cc.wrapup-worker.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/lightwing/Library/Logs/pro.meir.cc.wrapup-worker.err.log</string>
+
+    <!-- Background priority. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
