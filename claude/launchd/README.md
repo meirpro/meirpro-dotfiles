@@ -14,6 +14,49 @@ at `~/.claude/hooks/` (installed by the parent dotfiles repo).
 
 ## Agents
 
+### `pro.meir.cc.wrapup-worker.plist`
+
+Processes the per-session wrapup scheduling queue at `~/.claude/wrapups/queue/`.
+Replaces the old in-chat `/wrapup` slash command — wrapups now run fully
+outside the chat, triggered by Stop and SessionEnd hooks.
+
+- **Script:** `~/.claude/hooks/wrapup-worker.sh`
+- **Triggers:**
+  - `WatchPaths` on `~/.claude/wrapups/queue/` — fires instantly when any
+    queue file is written/changed (≈1s latency)
+  - `StartInterval: 600` — 10-min polling backstop for queue entries whose
+    `scheduled_at` is in the future when first enqueued
+  - `RunAtLoad: true` — processes any backlog at launchd load
+- **Per-tick cost:** microseconds when nothing is due (one `ls` + ISO timestamp compare)
+- **Logs:** `~/.claude/wrapups/worker.log` (per-session worker actions) + `~/Library/Logs/pro.meir.cc.wrapup-worker.{out,err}.log` (launchd capture)
+- **Concurrency:** single-instance via `~/.claude/wrapups/worker.lock` (noclobber-based, dead PID auto-stolen)
+
+**Install:** see the install block below, swapping `flush-wrapup-queue` for
+`wrapup-worker` in each command.
+
+**Hook registration:** the worker only fires on enqueue. To enqueue, the
+companion `wrapup-enqueue.sh` hook must be registered under `Stop` and
+`SessionEnd` in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      { "matcher": "", "hooks": [{ "type": "command",
+        "command": "~/.claude/hooks/wrapup-enqueue.sh" }] }
+    ],
+    "SessionEnd": [
+      { "matcher": "", "hooks": [{ "type": "command",
+        "command": "~/.claude/hooks/wrapup-enqueue.sh" }] }
+    ]
+  }
+}
+```
+
+Stop hook writes `scheduled_at: now + 10min`; SessionEnd writes
+`now + 30s`. Multiple enqueues for the same session_id overwrite the
+queue file (file is keyed by session_id) — that's the debounce.
+
 ### `pro.meir.cc.flush-wrapup-queue.plist`
 
 Drains `~/.claude/wrapup-queue.jsonl` by replaying queued wrapup-segment
