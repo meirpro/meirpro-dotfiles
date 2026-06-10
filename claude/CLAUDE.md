@@ -62,6 +62,7 @@ For tasks where AI cannot meaningfully compress, write `AI: n/a — verification
 - **NEVER drop a git stash.** When `git stash pop` fails due to conflicts, resolve the conflicts — don't drop. A dropped stash is irrecoverable. If conflicts are in unrelated files, use `git checkout --theirs <file>` for those files then `git stash pop` again, or apply as a patch with `git stash show -p | git apply`.
 - **Assume parallel agents are always active.** Other agents may be editing files at the same time — especially shared files like translation JSONs, CLAUDE.md, or CSS. Before stashing, resetting, or discarding changes, verify which changes are yours. If `git diff` or `git status` shows modifications you didn't make, **do not touch those files** — they belong to another agent. When in doubt, ask the user rather than taking destructive action.
 - **Don't recommend destructive git ops to the user.** Never suggest `git reset --hard`, `git clean -fd`, `git checkout -- .`, or `git branch -D` — not even when the working tree looks "messy" or local has diverged from origin. Parallel sessions/agents routinely leave uncommitted WIP that looks unattributed but is real work; suggesting `--hard` makes the user destroy it. If cleanup is genuinely needed, suggest `git stash -u` first so the user can `stash pop` afterwards. If the goal is just "get to a clean origin/master state," create a fresh branch off `origin/master` instead — local master can stay divergent.
+- **NEVER create git worktrees under `/tmp`** (or `/private/tmp`, `$TMPDIR`). macOS purges tmp on reboot and on a 3-day unused-file timer, so a crash or restart silently destroys any uncommitted work in a tmp worktree — and orphans the worktree registration. Put worktrees in the repo's `.claude/worktrees/<name>/` instead (the per-repo `.claude/` folder is the durable scratch home); ensure `.claude/worktrees/` is in that repo's `.gitignore` BEFORE creating the first one. Same rule for any scratch checkout meant to outlive a single command (verify builds, cherry-pick staging, review copies). `/tmp` is fine only for artifacts that are disposable by design: logs, one-shot snapshot builds removed in the same command, downloaded scratch. Caveat: full test-suite runs inside a NESTED worktree (`.claude/worktrees/` lives inside the repo) can hit tooling artifacts (observed: fake-indexeddb wiring failures that pass in a normal checkout) — treat the worktree as edit isolation, not the test oracle; run the authoritative suite in the main checkout or CI.
 
 ## Code Style
 
@@ -83,6 +84,10 @@ For tasks where AI cannot meaningfully compress, write `AI: n/a — verification
 ## Dev Server
 
 - Before starting a dev server, always check if one is already running on the expected port. Look up the port in `package.json` scripts (or other config like `vite.config.ts`, `wrangler.toml`), then run `lsof -ti :<port>` to check. If the port is already in use, skip starting the server and use the existing one.
+
+## MCP Server Config
+
+- **Never pin a stdio MCP server to `npx ...@latest`.** Claude Code spawns stdio MCP servers synchronously at session start and blocks the prompt until they come up. The `@latest` dist-tag forces `npx` to hit `registry.npmjs.org` on *every* launch (even when the package is cached) to resolve the tag — so a flaky/slow network hangs the whole session behind it. Pin an exact version (e.g. `@playwright/mcp@0.0.75`) so npx resolves straight from cache with zero network. Bump the pin deliberately (~monthly): `npm view <pkg>@latest version`, then update the version in `~/.claude.json` → `mcpServers.<name>.args`. (Remote claude.ai connectors degrade gracefully on bad network; local stdio spawns are the hard blocker.)
 
 ## Session Time Tracking
 
