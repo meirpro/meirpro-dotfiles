@@ -34,6 +34,31 @@ For tasks where AI cannot meaningfully compress, write `AI: n/a — verification
 
 **Don't sandbag the AI number.** If the work is mechanical and ~15 minutes is the honest estimate, say 15 minutes — don't pad to feel safer. The whole point of the dual format is that the user can decide quickly which tasks are worth picking up themselves vs handing off.
 
+## Multi-Agent Verify-then-Fix Pattern (measured 2026-06)
+
+When asked to verify that a system behaves as intended — and then fix what's found — the measured-efficient structure is two delegated phases. The orchestrating session scouts inline first (find the exact files, grab file:line anchors for each behavior), then stays thin: delegation is what keeps the main context flat and the session usable afterwards.
+
+**Phase 1 — adversarial verification workflow** (background, non-frontier/sonnet-class agents):
+
+- One verifier agent per behavior dimension. A "works" verdict requires **executed tests** (scratch tests written in the project's real test harness, run, then deleted), never code-reading alone. Code-reading supports only "the path doesn't exist" claims, with file:line citations.
+- Every reported issue goes to a second, adversarial **skeptic agent** that tries to refute it with its own executed tests before it counts as confirmed. This kills plausible-but-wrong findings before any fix effort is spent — and the survivors come with ready-made repro tests and exact anchors, which is what makes Phase 2 cheap.
+- Parallel agents share the checkout: each owns a uniquely-named scratch test file, deletes it when done, touches nothing else, never commits.
+
+**Phase 2 — grouped fix delegation** (decisions pre-made by the orchestrator, written into the prompts):
+
+- Group fixes by **file ownership, not topic**: no two parallel agents may touch the same file; groups sharing a file run sequentially. Expect cross-file fallout no agent owns (e.g. a signature change breaking a caller outside every group) — the orchestrator fixes those seams itself.
+- Each agent works test-first, self-times with `date +%s` per fix and reports per-fix elapsed, runs only its own tests, reports typecheck errors only in its own files, never commits, never runs repo-wide formatters.
+- The orchestrator then runs the full suite + typecheck, **attributes any failures before reacting** (parallel sessions may have broken something unrelated — check `git status` for files no agent owned), and commits in small logical chunks by named files. Files entangled with another session's uncommitted work get held and reported, not committed.
+
+**Measured economics** (one full run; use to calibrate AI estimates):
+
+- Verification: 8 dimensions → 25 agents, ~18 min wall, ~1.5M subagent tokens, ~$22, ~160 executed tests. 16/17 findings survived the skeptics — the adversarial pass is worth its cost.
+- Fixes: 16 confirmed issues → 5 grouped agents (3 parallel + 1 sequenced + orchestrator seam work), ~31 min wall including final verification and commits, ~344k subagent tokens, ~$12. Individual groups ran ~2–10 min; a 4-fix group ~7 min.
+- The fix phase cost roughly **half** the verification phase despite writing all the code — tightly-specced agents (file lists, acceptance tests, decisions already made) don't wander.
+- Orchestrator context grew only ~4 percentage points across the entire fix phase. That headroom is the point: delegation isn't just parallelism, it's what lets one session verify, fix, commit, and still handle follow-ups.
+
+**Estimate calibration:** a verified bug with a repro test and file:line anchor, delegated to a specced sonnet-class agent, lands in ~2–10 min AI each (batch of ~16: ~30 min AI wall). Quote verification-of-a-subsystem as ~20 min AI + ~$20-25 in subagent spend, and say the spend out loud — it's billed differently than the orchestrator's own time.
+
 ## Git Safety
 
 > ⚠ **The four staging rules below are ENFORCED at the binary level by
