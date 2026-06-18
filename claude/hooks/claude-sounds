@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# claude-sounds [on|off|toggle|status] — master switch for Claude Code hook sounds.
+# Flips "enabled" in ~/.claude/audio/sounds.json. Hooks stay wired; they just no-op.
+set -euo pipefail
+CONFIG="$HOME/.claude/audio/sounds.json"
+action="${1:-status}"
+
+exec python3 - "$CONFIG" "$action" <<'PY'
+import json, sys
+cfg_path, action = sys.argv[1], sys.argv[2]
+try:
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+except (OSError, json.JSONDecodeError) as e:
+    print(f"cannot read {cfg_path}: {e}", file=sys.stderr); sys.exit(1)
+
+cur = cfg.get("enabled", True)
+if action == "status":
+    print("🔊 sounds ON" if cur else "🔇 sounds OFF"); sys.exit(0)
+elif action == "on":
+    cfg["enabled"] = True
+elif action == "off":
+    cfg["enabled"] = False
+elif action in ("toggle", "t"):
+    cfg["enabled"] = not cur
+else:
+    print("usage: claude-sounds [on|off|toggle|status]", file=sys.stderr); sys.exit(1)
+
+with open(cfg_path, "w") as f:
+    json.dump(cfg, f, indent=2); f.write("\n")
+print("🔊 sounds ON" if cfg["enabled"] else "🔇 sounds OFF")
+PY
