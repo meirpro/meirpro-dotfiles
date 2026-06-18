@@ -346,3 +346,17 @@ function ghmp() {
 	}
 	git pull --ff-only && git log --oneline -3
 }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# claude-sounds — master switch for Claude Code hook sounds.
+# Flips "enabled" in ~/.claude/audio/sounds.json; the play_sound.py hook
+# no-ops on every event when off. Thin wrapper over the standalone script
+# (claude/hooks/claude-sounds in this repo, also symlinked to ~/bin so it
+# works in every shell + non-interactive sessions, like git/ghmp).
+#
+# Usage: claude-sounds [on|off|toggle|status]
+# ─────────────────────────────────────────────────────────────────────
+function claude-sounds() {
+	"$HOME/.claude/hooks/claude-sounds" "$@"
+}
