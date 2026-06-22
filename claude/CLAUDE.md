@@ -10,6 +10,26 @@
 - Format code with the project's formatter (Prettier, etc.) after editing files.
 - **Write tests alongside implementation, not after** — write or update tests as you build, not as a separate follow-up step. Tests written after the fact tend to just confirm what the code already does rather than validating correctness.
 
+## Regression Ratchet — make recurring bug classes unrepresentable
+
+**When a bug class ships, the fix is not just to fix the code — it is to make that same bug class impossible to reintroduce silently.** An issue seen once should be caught **mechanically** forever after, by deterministic code (a lint rule / AST check / codebase-walking test), never by an agent or human remembering. The ratchet grows one tooth per incident; it is not a big-bang setup. (The `hayom` repo is the worked reference — 18+ custom ESLint rules, several codebase-walking guard tests, and a meta-test that guards the lint config itself.)
+
+**The lifecycle for every non-trivial bug:**
+1. Fix the code.
+2. Add a mechanical guard that *would have caught it*: a uniquely-named custom ESLint rule, a `no-restricted-syntax`/`no-restricted-imports` selector, or — when an AST selector can't express the pattern (e.g. it varies by parameter name) — a vitest test that walks the source tree and fails on the pattern.
+3. Document the incident in the guard's header: what it bans, **why it's a bug class** (`shipped once — the "<short incident name>" bug`, with PR/commit SHA), and what it deliberately does NOT flag (the escape hatch).
+4. If the guard mechanism itself has a failure mode, guard the guard (a meta-test).
+5. Wire it into the gate so it runs unattended (tsc + eslint + tests in CI and the save-time hook).
+
+**Mechanism choices (learned the hard way):**
+- **Prefer uniquely-named custom rules over `no-restricted-syntax`.** ESLint flat config *replaces* (does not merge) a rule's options when multiple blocks match the same file — last block wins — so a late `no-restricted-syntax` block can silently disable every earlier selector (observed: ~8 days inert before anyone noticed). A custom-named rule composes and can neither clobber nor be clobbered. If you must use `no-restricted-syntax`, duplicate the selectors into the last-matching (most specific) block, and pin the resolved config with a test that calls `eslint.calculateConfigForFile()` **and** `eslint.lintText()` — a clobbered selector still *appears* present but is silently inert, so verify it actually fires.
+- **Escape hatches are explicit, inline, and reasoned** — a greppable marker with a justification (`// allow-whole-done: <reason>`, `/* i18n-exempt: <reason> */`), never a blanket file-level disable.
+- **Pair a rule with its seam.** If a rule bans direct use of a set of names in favor of a choke-point module, add a sync test asserting that name list still matches the module's real exports, so the rule can't go stale on a rename.
+
+**Naming + placement:** guard tests live alongside the source, named by the behavior/pattern they pin: `*.regression.test.ts` (documents a specific shipped incident + its fix commit), `*.guard.test.ts` (an invariant), `*.rule.test.ts` (walks the tree or runs `eslint.lintText`).
+
+**Don't retrofit a whole lint stack mid-task** to add one guard — add the single rule/test now and note "formalize into ESLint/CI" as a follow-up if the project lacks the harness. A dedicated deterministic check (e.g. a `tsx` script wired to `npm run lint`) is a legitimate stand-in until a real ESLint flat-config home exists.
+
 ## Time Estimates — always give both human and AI
 
 Whenever you quote a time estimate for a task (in TODO docs, scope discussions, planning replies, anywhere it would help me decide what to hand off vs do myself), give **both** numbers, every time:
