@@ -1,0 +1,36 @@
+{
+  "enabled": true,
+  "gap_seconds": 2,
+  "events": {
+    "Stop": {
+      "sounds": [],
+      "voice": "ready.mp3",
+      "cancelable": true
+    },
+    "Notification": {
+      "sounds": [
+        "kim-possible-beep.mp3"
+      ],
+      "voice": "auto",
+      "cancelable": true
+    },
+    "SubagentStop": {
+      "sounds": [
+        "batman-screen-change.mp3",
+        "batman-wave.mp3"
+      ],
+      "voice": "task_complete.mp3",
+      "single_flight": true
+    },
+    "SessionStart": {
+      "sounds": [
+        "mario-bros-level-1-2.mp3"
+      ]
+    },
+    "SessionEnd": {
+      "sounds": [
+        "mario-game-over.mp3"
+      ]
+    }
+  }
+}

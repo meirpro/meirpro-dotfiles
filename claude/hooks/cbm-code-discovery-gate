@@ -1,6 +1,8 @@
 #!/bin/bash
-# Gate hook: nudges Claude toward codebase-memory-mcp for code discovery.
-# First Grep/Glob/Read/Search per session -> block. Subsequent -> allow.
+# Gate hook: enforces codebase-memory-mcp-FIRST for code discovery.
+# First Grep/Glob/Read/Search per session -> BLOCK (exit 2) with guidance.
+# The marker is written on that blocking call, so the immediate retry AND every
+# later call in the session proceed (exit 0). One speed-bump per session, not a wall.
 # PPID = Claude Code process PID, unique per session.
 GATE=/tmp/cbm-code-discovery-gate-$PPID
 find /tmp -name 'cbm-code-discovery-gate-*' -mtime +1 -delete 2>/dev/null
@@ -8,5 +10,13 @@ if [ -f "$GATE" ]; then
     exit 0
 fi
 touch "$GATE"
-echo 'NUDGE: For code discovery, consider codebase-memory-mcp tools first: search_graph(name_pattern) to find functions/classes, trace_path() for call chains, get_code_snippet(qualified_name) to read source. If the graph is not indexed yet, call index_repository first. Grep/Glob/Read still allowed for text content search.' >&2
-exit 0
+cat >&2 <<'MSG'
+BLOCKED once this session: try codebase-memory-mcp FIRST for code discovery.
+  search_graph(query="..." | name_pattern=".*X.*")  -> find functions/classes/components
+  trace_path(function_name="X", direction="both")    -> callers/callees, impact analysis
+  get_code_snippet(qualified_name="...")              -> read a symbol's source
+Then Grep/Glob/Read are unblocked for the rest of the session -- just retry your call.
+If this repo's graph is empty (search_graph returns nothing), retry to proceed with
+Grep/Read, or run index_repository once to populate it.
+MSG
+exit 2

@@ -40,13 +40,23 @@ TIME_LOG="$HOME/.claude/time-log.jsonl"
 SESSION_ID=""
 PID=""
 SUMMARY=""
+SUMMARY_JSON_FILE=""
+OWN_COMMITS_FILE=""
+CUMULATIVE_SOURCE=""
+RECONCILE_WARNING=""
+PARALLEL_COMMIT_COUNT=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --session-id) SESSION_ID="$2"; shift 2 ;;
-    --pid)        PID="$2"; shift 2 ;;
-    *)            SUMMARY="$1"; shift ;;
+    --session-id)          SESSION_ID="$2"; shift 2 ;;
+    --pid)                 PID="$2"; shift 2 ;;
+    --summary-json)        SUMMARY_JSON_FILE="$2"; shift 2 ;;
+    --own-commits)         OWN_COMMITS_FILE="$2"; shift 2 ;;
+    --cumulative-source)   CUMULATIVE_SOURCE="$2"; shift 2 ;;
+    --reconcile-warning)   RECONCILE_WARNING="$2"; shift 2 ;;
+    --parallel-commits)    PARALLEL_COMMIT_COUNT="$2"; shift 2 ;;
+    *)                     SUMMARY="$1"; shift ;;
   esac
 done
 
@@ -124,6 +134,11 @@ NOW_ISO="$NOW" \
 BRANCH_NAME="$BRANCH" \
 WRAPUP_QUEUE="$HOME/.claude/wrapup-queue.jsonl" \
 SUMMARY_ARG="$SUMMARY" \
+SUMMARY_JSON_FILE="$SUMMARY_JSON_FILE" \
+OWN_COMMITS_FILE="$OWN_COMMITS_FILE" \
+CUMULATIVE_SOURCE="$CUMULATIVE_SOURCE" \
+RECONCILE_WARNING="$RECONCILE_WARNING" \
+PARALLEL_COMMIT_COUNT="$PARALLEL_COMMIT_COUNT" \
 python3 <<'PYEOF'
 import json, os, sys, subprocess, glob
 from datetime import datetime, timezone
@@ -140,6 +155,24 @@ NOW = os.environ['NOW_ISO']
 BRANCH = os.environ['BRANCH_NAME']
 queue_file = os.environ['WRAPUP_QUEUE']
 summary = os.environ['SUMMARY_ARG']
+
+# Self-driving wrapup orchestrator extensions. All optional — when
+# absent, behavior is identical to pre-2026-05-25 (flat summary only).
+def _load_json_file(env_key):
+    p = os.environ.get(env_key, '')
+    if not p or not os.path.exists(p):
+        return None
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+summary_json = _load_json_file('SUMMARY_JSON_FILE')
+own_commits = _load_json_file('OWN_COMMITS_FILE')  # [{"sha":"...","msg":"..."}]
+cumulative_source_arg = os.environ.get('CUMULATIVE_SOURCE') or None
+reconcile_warning_arg = os.environ.get('RECONCILE_WARNING') or None
+parallel_commit_count_arg = os.environ.get('PARALLEL_COMMIT_COUNT') or None
 
 def p(s):
     return datetime.strptime(s, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
@@ -267,6 +300,14 @@ try:
 except:
     commits = []
 
+# Orchestrator-attributed own commits replace the git-log window when
+# wrapup.sh passed --own-commits. Applied here so BOTH the time-log
+# entry and the CC payload see the same authoritative list (the override
+# used to live next to the payload only, which made time-log carry
+# parallel-agent commits — bug spotted during 2026-05-25 e2e verify).
+if own_commits:
+    commits = [f"{c.get('sha','')[:8]} {c.get('msg','')}" for c in own_commits if c.get('sha')]
+
 # Files changed
 try:
     n = len(commits)
@@ -356,6 +397,16 @@ telemetry = data.get('telemetry', {}) or {}
 live = telemetry.get('live', {}) or {}
 totals = telemetry.get('totals', {}) or {}
 
+# files_changed loses meaning when filtered to own commits; reset.
+# (commits override already applied above so time-log + payload agree)
+if own_commits:
+    fc = len(own_commits)
+
+# Flat summary stays as a back-compat top-line. When summary_json is
+# present, use its headline (server maps both consistently).
+if summary_json and isinstance(summary_json.get('headline'), str):
+    summary = summary_json['headline']
+
 payload = {
     'session_id': sid,
     'segment_num': wc,
@@ -387,6 +438,21 @@ payload = {
     'sub_agent_total_ms': totals.get('sub_agent_total_ms', 0),
     'parallelism_factor': totals.get('parallelism_factor'),
 }
+
+# Self-driving wrapup additions. All optional on the server (migration
+# 0012_wrapup_structured_summary.sql); absence is normal for legacy
+# callers and the claude-timed exit fallback.
+if summary_json:
+    payload['summary_json'] = summary_json
+if cumulative_source_arg:
+    payload['cumulative_source'] = cumulative_source_arg
+if reconcile_warning_arg:
+    payload['summary_reconcile_warning'] = reconcile_warning_arg
+if parallel_commit_count_arg:
+    try:
+        payload['parallel_commit_count'] = int(parallel_commit_count_arg)
+    except ValueError:
+        pass
 
 cc_delivered = False
 cc_attempts = 0
