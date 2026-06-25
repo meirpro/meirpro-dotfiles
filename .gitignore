@@ -14,6 +14,7 @@ statsig/
 bash-command-log.txt
 eslint_errors.json
 *.lock
+.playing.pgid
 
 # Claude Code - Local overrides
 settings.local.json
