@@ -157,9 +157,7 @@ Forked from [martinambrus/claude_timings_wrapper](https://github.com/martinambru
 
 ### Session hooks (heartbeat + wrapup)
 - **Parallel agent support**: Each agent gets its own session file at `~/.claude/sessions/{session_id}.json`. The heartbeat reads `session_id` from stdin to update the correct file. Wrapup detects overlapping sessions and logs `parallel_with` in the time entry.
-- **`/wrapup` for mid-session topic changes** — run `/wrapup` when changing subjects to log a time segment with an AI-generated summary. The `/wrapup` skill runs exact pre-approved bash commands (no improvisation). Follow its steps precisely.
-- **Don't ask for permission** to run `/wrapup` — just do it as part of the natural workflow. Keep the summary concise and specific (e.g., "Added session heartbeat hook and crash recovery to time tracking system").
-- If the user explicitly says to skip wrapup or not to run it, respect that.
+- **Wrapup is automatic — there is NO `/wrapup` command** (the manual slash command was removed). The **Stop + SessionEnd** hooks run `wrapup-enqueue.sh`, which schedules a wrap into `~/.claude/wrapups/queue/{session_id}.json` (Stop → now + 10 min; SessionEnd → now + 30 s; later fires overwrite = debounce). The launchd-driven `wrapup-worker.sh` (WatchPaths on the queue dir + 10-min backstop) then runs `wrapup.sh` per session to generate the AI summary and drain the queue. Don't try to invoke `/wrapup` — it doesn't exist; segments are captured for you.
 - **Weekly report**: Run `bash ~/.claude/hooks/session_report.sh [days]` for a summary with agent-hours, wall time, parallelism ratio, and active sessions.
 - **Symlink caution**: Hook scripts live in `meirpro-dotfiles/claude/hooks/` as real files, symlinked from `~/.claude/hooks/`. Never use `ln -sf` when the target is already a symlink — it follows the chain and overwrites the source. Always `rm` first, then `ln -s`.
 - **External hook scripts** (e.g., `claude_timings_wrapper/hooks/`) are referenced by **full absolute path** in `settings.json`, not copied or symlinked into `~/.claude/hooks/`. This avoids conflicts with the meirpro-dotfiles symlink structure.
