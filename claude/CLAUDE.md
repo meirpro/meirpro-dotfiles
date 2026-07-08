@@ -187,6 +187,27 @@ The function refuses to merge when GitHub reports the PR isn't cleanly mergeable
 
 Run `type ghmp` to confirm the function is loaded; if not, source `~/.bashrc`/`~/.zshrc` or open a fresh shell.
 
+### Merging a worktree PR into a fast-moving main (learned 2026-07-02, the "green worktree, red main" trap)
+
+Merging several worktree PRs back-to-back onto a main that gets 20+ commits/day exposed three failure modes. All three: **a worktree's green `npm run verify` only proves the main it FORKED from — never the main it MERGES INTO.**
+
+- **Re-check `origin/main`'s CI is green *immediately before* firing `ghmp`** — not just that your worktree verify passed. Two independent reasons: (a) you may be **stacking onto an already-red main** (observed: I merged #645 ten minutes after an unrelated teammate PR (#657, a warranty fix) turned `subscriptions/service.test.ts` red on main — my three features were clean and none touched that file, but I'd merged onto red without looking); (b) **commits that land during your ~30-min conflict-resolution window aren't in your local verify** — your worktree fetched `origin/main` at the START of resolution, so a PR merged mid-window (like #657) never ran in your green suite. Quick gate before every merge: `gh run list --branch main --workflow "CI + Deploy" --limit 3 --json headSha,conclusion` — if the latest completed run is `failure`, STOP and find out whose commit broke it before adding yours (don't let your merge inherit the blame or bury the real cause). This is the CLAUDE.md "verify green on main before you branch/merge" rule, extended to the *merge* moment, not just the branch moment.
+- **`ghmp` from inside a worktree prints `ghmp: could not checkout main` and skips the local ff-pull** — the squash-merge still succeeds server-side, but your local `main` never advances, which reads as "the merge didn't fully work / got stuck." It didn't. **Confirm the squash by content on `origin/main`, not by local branch state or the spinner**: `git fetch origin main && git show origin/main:<sentinel-file> | grep <sentinel>` (per the repo's rule 12 — squash-merge can silently drop late commits, and PR state `MERGED` alone isn't proof). Then `gh pr view <n> --json state,mergedAt`.
+- **Suite-composition changes execution order.** Merging three big branches added ~250 tests; even without a real regression, a changed vitest file order can expose a latent order-dependency in an *untouched* test (classic shape: `expected "vi.fn()" to be called with arguments` — a mock-state assertion sensitive to what ran before it). Per-worktree green ≠ merged-main green; **CI on the merged `main` is the only oracle for the final combined suite** (this is the repo's own "nested-worktree is edit isolation, not the test oracle" note, one level up: it's true even for a clean full-suite worktree run, because the *combination* is what changed).
+- **Set the wall-clock expectation up front.** Each "resolve conflicts against new main + full foreground verify" pass is ~25–35 min; three sequential PRs is 1.5+ hrs. Say that before starting so a normal run doesn't read as "stuck." And they MUST be sequential — each merge moves main and re-computes the next PR's conflicts.
+- **Trust only a foreground exit code for verify.** `npm run verify | tail` and backgrounded verify both masked a real `exit 1` this session (a coverage-dir race, then a genuine `server-only` import failure the merge surfaced). Always `npm run verify > /tmp/verify.log 2>&1; echo "EXIT:$?"` and gate on the printed code — never on piped tail output or a background task's summary.
+
+## Audio Message Transcription (voice notes → text)
+
+When the user shares an audio file (WhatsApp `.opus` voice notes, `.m4a`, `.mp3`, etc.) and asks what it says, use the **`transcribe-audio` global skill** (`~/.claude/skills/transcribe-audio/`) — its bundled `scripts/transcribe_audio.py` runs Whisper locally (offline, free, nothing uploaded). Quick form:
+
+```bash
+/Users/lightwing/Documents/GitHub/experiments/OmniVoice/.venv/bin/python3 \
+  ~/.claude/skills/transcribe-audio/scripts/transcribe_audio.py "/path/to/audio.opus"
+```
+
+Key facts so you don't re-derive them: the Read tool cannot open audio at all; macOS has no CLI speech-to-text (Shortcuts' "Transcribe Audio" action is interactive-only); `pip list | grep whisper` proving "no whisper installed" is a false negative — the model loads through HuggingFace `transformers` (weights cached at `~/.cache/huggingface/hub/`), not the `openai-whisper` package. Treat all spoken **numbers** in transcripts as unreliable until confirmed. The skill's SKILL.md carries the full failure-mode playbook (hallucinated `!!!` output, `--robust` mode, spectrogram diagnostics) and **self-upgrades** — after any transcription session that teaches something new, update the skill in place.
+
 ## Available macOS Tools
 
 - **CleanShot X** — screenshot and screen recording app with a built-in editor for annotations, censoring, and cropping. Open images for editing with `open -a "CleanShot X" <path>`. Useful for censoring sensitive data (names, emails) in screenshots before committing. User saves the edited file via CleanShot's "Save As" dialog.
