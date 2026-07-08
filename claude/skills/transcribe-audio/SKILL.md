@@ -71,17 +71,50 @@ already installed).
      than silently dropping it — partial results from some files ≠ all
      files handled.
 
-  Observed 2026-07-08: 3 of 4 WhatsApp voice notes from the SAME sender,
-  same day, same clean-speech spectrogram profile — turbo transcribed one
-  perfectly and hallucinated '!!!' on the other three; language forcing,
-  --robust chunking, and 0.8x tempo slowdown all failed. Whole-file quality
-  is binary per-file, not gradual: don't assume "file 1 worked so the rest
-  will".
+  Observed 2026-07-08 (4 WhatsApp voice notes, same sender/day): the root
+  cause of the '!!!' files was **clipping** — `ffmpeg -af volumedetect`
+  showed `max_volume: 0.0 dB` (full-scale = mic overload), and the zoomed
+  spectrogram showed broadband splatter to 10kHz + overload harmonics
+  instead of clean voiced-speech striations. Humans parse clipped speech;
+  Whisper (any size) doesn't. Outcome matrix from that session:
+  - Full large-v3 **rescued the skipped opening** of a partly-degraded
+    file that turbo had silently truncated (turbo returned only the tail
+    with a "did not predict an ending timestamp" warning). A mid-sentence
+    transcript start = re-run with large-v3, there's likely more audio.
+  - Fully-clipped files stayed unrecoverable by EVERYTHING: both models,
+    language forcing (en/he/yi), --robust chunking, 0.5x/0.8x tempo,
+    pitch-shift, task=translate, and ffmpeg `adeclip` + band-limit +
+    `speechnorm`. When max_volume is 0.0dB and large-v3 still returns
+    punctuation, stop burning compute — ask the human to listen, or get a
+    cleaner copy from the sender.
+  - Partial rescue matters: transcribe every file and compare — clipping
+    is per-file, and cross-corroborating a clean file's numbers against a
+    second model run catches digit garbling.
 
-- **HuggingFace downloads can silently stall** (unauthenticated rate
-  limits): a model download showing a few KB after many minutes is stuck,
-  not slow. Kill it and re-run `snapshot_download` — it resumes; or set
-  `HF_TOKEN`.
+- **HuggingFace downloads via Python can stall or die while the network is
+  fine.** Observed 2026-07-08: `snapshot_download` sat at 4.4MB for 40+
+  minutes, and in a background shell died with `httpx.ConnectError: Bad
+  file descriptor` — while a plain `curl` to the same host ran at 2MB/s.
+  Diagnose with a ranged curl
+  (`curl -sL -o /dev/null -w "%{speed_download} B/s" -r 0-2097151
+  https://huggingface.co/<repo>/resolve/main/model.safetensors`); if that's
+  fast, skip the Python downloader entirely and curl the files into a plain
+  directory, then pass it as `--model <dir>`:
+
+  ```bash
+  D=~/.cache/whisper-large-v3-local; mkdir -p $D
+  B="https://huggingface.co/openai/whisper-large-v3/resolve/main"
+  for f in config.json generation_config.json preprocessor_config.json \
+           tokenizer.json tokenizer_config.json special_tokens_map.json \
+           vocab.json merges.txt normalizer.json added_tokens.json; do
+    curl -sL -o "$D/$f" "$B/$f" &
+  done; wait
+  curl -sL -C - -o "$D/model.safetensors" "$B/model.safetensors"  # ~3GB, resumable
+  ```
+
+  `transformers` loads a local directory path exactly like a hub id, so
+  `--model $D` just works. (whisper-large-v3 weights already live at
+  `~/.cache/whisper-large-v3-local/` on this machine from that incident.)
 
 ## Self-upgrade rule
 
