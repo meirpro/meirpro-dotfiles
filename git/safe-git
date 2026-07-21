@@ -22,11 +22,24 @@
 #      `git add <files>` in the same command — refused. Forces
 #      explicit file lists; bare `git commit` could ship whatever was
 #      already staged from a prior turn.
+#   7. `git checkout <branch>` / `git checkout -b` / `git switch ...`
+#      (ANY HEAD-moving form) — refused. A checkout's branch is a
+#      SHARED resource: parallel Claude sessions + the user all ride
+#      one HEAD, so one agent switching/creating a branch silently
+#      moves everyone (shipped: 2026-07-21, an agent created four
+#      ship/* branches on the shared checkout while other agents were
+#      working). File restores (`git checkout -- <path>`,
+#      `git checkout <ref> -- <path>`) and `git restore` stay allowed;
+#      `git worktree add` stays allowed (the sanctioned isolation).
+#      Bypass — THE explicit-permission mechanism — is
+#      `GIT_UNSAFE_BRANCH=1`, logged like the staging bypass.
 #
-# Bypass: prefix the command with `GIT_UNSAFE_STAGE=1` to disable all
-# of the above for that single invocation. Logged to
-# ~/.claude/git-bypass.log so it's not silent. Use this for legit
-# imports of large folders.
+# Bypass: prefix the command with `GIT_UNSAFE_STAGE=1` to disable the
+# staging rules (1-5), or `GIT_UNSAFE_BRANCH=1` to allow one
+# HEAD-moving checkout/switch (rule 7), for that single invocation.
+# Both are logged to ~/.claude/git-bypass.log so they're not silent.
+# Use GIT_UNSAFE_STAGE for legit imports of large folders;
+# GIT_UNSAFE_BRANCH only with the user's explicit say-so.
 #
 # All other `git` invocations (status, diff, log, push, etc.) pass
 # through unchanged.
@@ -59,18 +72,6 @@ if [ -z "${REAL_GIT:-}" ]; then
     exit 127
 fi
 
-# Bypass — log the exception, then exec the real git directly.
-if [ "${GIT_UNSAFE_STAGE:-}" = "1" ]; then
-    LOG="$HOME/.claude/git-bypass.log"
-    mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
-    {
-        printf '[%s] cwd=%s argv=' "$(date '+%Y-%m-%d %H:%M:%S')" "$(pwd)"
-        for a in "$@"; do printf '%q ' "$a"; done
-        printf '\n'
-    } >> "$LOG" 2>/dev/null || true
-    exec "$REAL_GIT" "$@"
-fi
-
 # Detect the subcommand (first non-option arg). Skip global flags like
 # `git -c foo=bar add ...` so the rules still apply.
 SUBCMD=""
@@ -84,11 +85,34 @@ while [ $i -le $# ]; do
     i=$((i + 1))
 done
 
-# Only interesting subcommands: add, commit, reset. Everything else passes through.
+# Only interesting subcommands: add, commit, reset, checkout, switch.
+# Everything else passes through.
 case "$SUBCMD" in
-    add|commit|reset) ;;
+    add|commit|reset|checkout|switch) ;;
     *) exec "$REAL_GIT" "$@" ;;
 esac
+
+# Which env var can bypass the rule that applies to this subcommand.
+# SCOPED on purpose: GIT_UNSAFE_STAGE must not smuggle a branch move
+# past rule 7, and GIT_UNSAFE_BRANCH must not smuggle an `add -A`
+# past rules 1-5 — each bypass unlocks exactly its own rule family.
+case "$SUBCMD" in
+    checkout|switch) BYPASS_VAR="GIT_UNSAFE_BRANCH" ;;
+    *)               BYPASS_VAR="GIT_UNSAFE_STAGE" ;;
+esac
+
+# Bypass — log the exception, then exec the real git directly.
+eval "BYPASS_SET=\${$BYPASS_VAR:-}"
+if [ "$BYPASS_SET" = "1" ]; then
+    LOG="$HOME/.claude/git-bypass.log"
+    mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+    {
+        printf '[%s] %s cwd=%s argv=' "$(date '+%Y-%m-%d %H:%M:%S')" "$BYPASS_VAR" "$(pwd)"
+        for a in "$@"; do printf '%q ' "$a"; done
+        printf '\n'
+    } >> "$LOG" 2>/dev/null || true
+    exec "$REAL_GIT" "$@"
+fi
 
 # Reconstruct the *original shell command line* if available. Three
 # sources, tried in this order:
@@ -169,7 +193,7 @@ deny() {
 $explain
 
  Bypass (use sparingly):
-   GIT_UNSAFE_STAGE=1 git $(printf '%q ' "$@" | sed 's/ $//')
+   ${BYPASS_VAR:-GIT_UNSAFE_STAGE}=1 git $(printf '%q ' "$@" | sed 's/ $//')
 
    Note: env-var prefix only applies to the FIRST command. To bypass
    an \`add && commit\` chain, wrap both in one bash -c:
@@ -316,6 +340,48 @@ $EXTRA
    3. If you don't know whose WIP it is:   stop and ask the user — another session may be active." "$@"
         fi
     fi
+fi
+
+# ─────────────────────────────────────────────────────────────────
+# Rule 7: subcommand == checkout | switch (HEAD-moving forms)
+# ─────────────────────────────────────────────────────────────────
+# A checkout's branch is a SHARED resource: parallel Claude sessions,
+# other agents, and the user all share one HEAD in a given working
+# dir. One agent creating/switching a branch silently moves EVERYONE
+# — their edits start landing on the wrong branch (shipped 2026-07-21:
+# an agent minted four ship/* branches on the shared CRM checkout to
+# imitate `npm run ship` while other agents were mid-work).
+#
+# Allowed without bypass:
+#   git checkout -- <path>            (file restore — no HEAD move)
+#   git checkout <ref> -- <path>      (file restore from a ref)
+#   git restore ... / git worktree add (different subcommands — the
+#                                       worktree is the sanctioned
+#                                       isolation for branch work)
+# Everything else under checkout/switch moves (or can move) HEAD and
+# is refused. The bypass IS the explicit-permission mechanism: get the
+# user's say-so, then prefix `GIT_UNSAFE_BRANCH=1`.
+if [ "$SUBCMD" = "checkout" ] || [ "$SUBCMD" = "switch" ]; then
+    # (GIT_UNSAFE_BRANCH=1 is handled by the scoped bypass block above.)
+    if [ "$SUBCMD" = "checkout" ]; then
+        # `--` marks the pathspec form — a file restore, not a HEAD move.
+        for a in "$@"; do
+            if [ "$a" = "--" ]; then
+                exec "$REAL_GIT" "$@"
+            fi
+        done
+    fi
+
+    deny "'git $SUBCMD' moves the shared checkout's HEAD — forbidden without explicit user permission." \
+        "Why: this working dir's branch is shared by parallel Claude sessions, other agents, and the user. Creating or switching branches here silently moves ALL of them — their edits land on your branch (this shipped 2026-07-21).
+
+ Do one of these instead:
+   1. Work on the branch the checkout is already on.
+   2. Need isolation? Use a git worktree (allowed, isolated HEAD):
+        git worktree add .claude/worktrees/<name> -b <branch>
+   3. Restoring a FILE (not switching)?  git checkout -- <path>   or   git restore <path>
+   4. The user explicitly approved a branch move? Use the logged bypass:
+        GIT_UNSAFE_BRANCH=1 git $(printf '%q ' "$@" | sed 's/ $//')" "$@"
 fi
 
 # All checks passed — forward to the real git.
