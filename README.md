@@ -46,6 +46,8 @@ meirpro-dotfiles/
 │   ├── .screenrc        # GNU Screen config
 │   ├── .wgetrc          # Wget defaults
 │   └── .curlrc          # Curl defaults
+├── macos/               # macOS system defaults
+│   └── defaults.sh      # `defaults write` settings (run manually)
 ├── install.sh           # Installation script
 ├── README.md            # This file
 └── SETUP.md             # Machine-specific setup guide
@@ -118,6 +120,34 @@ Comprehensive collection of universal shell configurations:
 - Root user detection (red username)
 - Git indicators: `+` staged, `!` unstaged, `?` untracked, `$` stashed
 
+### macOS System Defaults
+
+`macos/defaults.sh` captures the settings that aren't in System Settings but change how the machine feels daily — the ones that are easy to forget you ever set, and painful to rediscover on a new machine.
+
+```bash
+./macos/defaults.sh            # apply
+./macos/defaults.sh --revert   # back to macOS stock
+```
+
+**Not run by `install.sh`** — it restarts Finder and Dock, and the menu bar changes need a full logout. Run it deliberately.
+
+What it sets, and why each one earns its place:
+
+- **Menu bar density** — `NSStatusItemSpacing` / `NSStatusItemSelectionPadding` to 0 (stock 12/16). On a 14" screen the notch hides overflowing menu bar items; this roughly halves the footprint per item. Must be written with `-currentHost` or it silently does nothing.
+- **Time-only clock** — no date, no day of week, 24-hour. `ShowDate` is tri-state (`2` = never); at the default `0` the date reappears whenever macOS decides there's room.
+- **Key repeat** — `KeyRepeat 2` / `InitialKeyRepeat 15` (stock 6/25), and `ApplePressAndHoldEnabled` off so holding a key repeats instead of showing the accent picker.
+- **Smart substitutions off** — smart quotes and dashes silently corrupt code and shell commands outside an editor.
+- **Instant Dock** — `autohide-delay 0` + faster slide. Matters because the Dock is set to auto-hide, so stock costs a half-second on every reveal.
+- **Dock density** — `minimize-to-application` so minimised windows fold into the app icon instead of adding tiles, plus translucent icons for hidden apps.
+- **Compact sidebars** — `NSTableViewDefaultSizeMode 1`, same density goal as the menu bar.
+- **Finder** — path bar, status bar, expanded save/print dialogs, no `.DS_Store` on network shares or USB drives.
+- **Screenshots** — into `~/Pictures/Screenshots`, window drop shadow off.
+- **Screenshot shortcuts released** — disables the built-in Cmd-Shift-3/4/5 so **CleanShot X** can bind them. Without this CleanShot silently loses to macOS, which is near-impossible to diagnose on a fresh machine.
+- **Terminals** — Terminal.app secure keyboard entry + no line marks; iTerm2 without the quit prompt. Both are set because the choice of terminal is still open.
+- **App annoyances** — Photos.app no longer launches when a phone is plugged in, Chrome two-finger swipe-back off (*on trial* — the script documents the one-line undo), TextEdit opens plain-text UTF-8.
+
+The script only manages keys it sets itself. Anything changed through System Settings (Dock size, Finder view style, tap-to-click, hot corners) is left untouched by both apply and `--revert`. Settings deliberately *not* changed — and the reasoning — are documented in a comment block at the bottom of the script.
+
 ### Claude Code Customizations
 
 #### Custom Status Line
@@ -178,7 +208,7 @@ Custom additions include Claude Code integration (`cld` function) and personal p
 
 ```bash
 # Clone the repository
-cd ~/Documents/GitHub
+cd ~/git
 git clone https://github.com/YOUR_USERNAME/meirpro-dotfiles.git
 cd meirpro-dotfiles
 
@@ -234,21 +264,21 @@ If you prefer manual installation:
 cp -r ~/.claude ~/.claude.backup
 
 # Create symlinks
-ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/hooks ~/.claude/hooks
-ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/commands ~/.claude/commands
-ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/agents ~/.claude/agents
-ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/audio ~/.claude/audio
-ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/settings.json ~/.claude/settings.json
-ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/CLAUDE.md ~/.claude/CLAUDE.md
-ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/statusline-command.sh ~/.claude/statusline-command.sh
-ln -sf ~/Documents/GitHub/meirpro-dotfiles/claude/claude.json ~/.claude/claude.json
+ln -sf ~/git/meirpro-dotfiles/claude/hooks ~/.claude/hooks
+ln -sf ~/git/meirpro-dotfiles/claude/commands ~/.claude/commands
+ln -sf ~/git/meirpro-dotfiles/claude/agents ~/.claude/agents
+ln -sf ~/git/meirpro-dotfiles/claude/audio ~/.claude/audio
+ln -sf ~/git/meirpro-dotfiles/claude/settings.json ~/.claude/settings.json
+ln -sf ~/git/meirpro-dotfiles/claude/CLAUDE.md ~/.claude/CLAUDE.md
+ln -sf ~/git/meirpro-dotfiles/claude/statusline-command.sh ~/.claude/statusline-command.sh
+ln -sf ~/git/meirpro-dotfiles/claude/claude.json ~/.claude/claude.json
 ```
 
 **For Shell Config:**
 ```bash
 # Create symlinks
-ln -sf ~/Documents/GitHub/meirpro-dotfiles/shell/aliases.sh ~/.aliases
-ln -sf ~/Documents/GitHub/meirpro-dotfiles/shell/functions.sh ~/.functions
+ln -sf ~/git/meirpro-dotfiles/shell/aliases.sh ~/.aliases
+ln -sf ~/git/meirpro-dotfiles/shell/functions.sh ~/.functions
 
 # Add to ~/.bash_profile or ~/.zshrc
 echo '[ -r ~/.aliases ] && source ~/.aliases' >> ~/.bash_profile
@@ -386,7 +416,7 @@ Since files are symlinked, you can edit them in either location:
 vim ~/.functions
 
 # Or edit in repo (changes reflected in home)
-vim ~/Documents/GitHub/meirpro-dotfiles/shell/functions.sh
+vim ~/git/meirpro-dotfiles/shell/functions.sh
 ```
 
 Both edit the same file! Commit your changes from the repo directory.

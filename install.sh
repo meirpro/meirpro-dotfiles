@@ -356,6 +356,11 @@ if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
     echo "  4. Review SETUP.md for installing tools (NVM, Homebrew packages, etc.)"
     echo "  5. Test functions: try 'll', 'mkd test', 'cld -r <partial-id>'"
 fi
+if [[ "$(uname)" == "Darwin" ]]; then
+    echo "  • Apply macOS system defaults: ./macos/defaults.sh"
+    echo "    (key repeat, menu bar density, instant Dock, Finder path bar)"
+    echo "    Not run automatically — it restarts Finder/Dock and needs a logout."
+fi
 if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
     echo "  • Restart Claude Code or start a new session"
     echo "  • Try /commit-emoji to test slash commands"

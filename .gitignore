@@ -49,3 +49,8 @@ output-styles/
 *.bak-*
 *copy/
 *copy */
+
+# Machine inventory — personal (licensed software, account setup).
+# Lives in the private meirpro-machine repo instead.
+macos/apps.md
+macos/Brewfile*

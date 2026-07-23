@@ -40,6 +40,34 @@ brew install \
   htop
 ```
 
+## 🖥️ macOS System Defaults
+
+Run once per machine, after the installer:
+
+```bash
+./macos/defaults.sh
+```
+
+This applies the `defaults write` settings that make a new Mac feel like the old one — key repeat speed, menu bar density, instant Dock, Finder path bar, screenshot location. See the [macOS System Defaults](README.md#macos-system-defaults) section of the README for the full list and reasoning.
+
+**It is not part of `install.sh`** because it restarts Finder and Dock, and some settings need a logout.
+
+```bash
+# Log out and back in to finish (menu bar + key repeat)
+osascript -e 'tell app "System Events" to log out'
+
+# Undo everything the script set
+./macos/defaults.sh --revert
+```
+
+**Auditing what's already set.** To see how a machine differs from stock — useful when you know you changed something but can't remember what:
+
+```bash
+defaults -currentHost read -globalDomain NSStatusItemSpacing   # one key
+defaults read com.apple.dock | less                            # a whole domain
+defaults domains | tr ',' '\n'                                 # every domain
+```
+
 ## 🔧 Development Tools
 
 ### Node.js & NVM
