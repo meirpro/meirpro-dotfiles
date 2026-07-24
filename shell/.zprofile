@@ -3,3 +3,6 @@ eval "$(/opt/homebrew/bin/brew shellenv)"
 export HOMEBREW_NO_ANALYTICS=1
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
 export POWERSHELL_TELEMETRY_OPTOUT=1
+export GRADIO_ANALYTICS_ENABLED=False
+export HF_HUB_DISABLE_TELEMETRY=1
+export DO_NOT_TRACK=1
