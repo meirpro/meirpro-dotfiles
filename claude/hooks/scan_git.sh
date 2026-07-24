@@ -170,9 +170,9 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$ALL_TRACKED" -eq 1 ]; then
-    # Two levels: ~/git/<repo> for standalone repos, and ~/git/<client>/<repo>
-    # for grouped ones (sweetrobo/, futureino/, ruthknapp/ — adopted
-    # 2026-07-23). A single-level glob silently skipped every grouped repo.
+    # Two levels: ~/git/<repo> for standalone repos, and ~/git/<group>/<repo>
+    # for repos grouped in a client/project subfolder (adopted 2026-07-23).
+    # A single-level glob silently skipped every grouped repo.
     # Group directories themselves have no .git and fall through the check;
     # an unmatched glob stays literal and fails it too, so no nullglob needed.
     for repo in "$HOME"/git/*/ "$HOME"/git/*/*/; do
