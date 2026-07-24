@@ -94,7 +94,16 @@ set_default ch:-globalDomain NSStatusItemSelectionPadding -int 0
 set_default com.apple.menuextra.clock ShowDate -int 2
 set_default com.apple.menuextra.clock ShowDayOfWeek -bool false
 set_default com.apple.menuextra.clock Show24Hour -bool true
-echo -e "${GREEN}  ✓ Menu bar spacing, padding, and 24h time-only clock${NC}"
+
+# Hide the built-in battery item from the menu bar entirely. Stats.app shows
+# battery instead, so the native icon is pure duplication eating the width
+# this whole section is trying to reclaim. This is a ByHost Control Center key.
+#   8  = show in menu bar (stock on a laptop)
+#   24 = don't show in menu bar
+# Value is version-sensitive; if the icon survives, the authoritative control
+# is System Settings -> Control Center -> Battery -> Don't Show in Menu Bar.
+set_default ch:com.apple.controlcenter Battery -int 24
+echo -e "${GREEN}  ✓ Menu bar spacing, 24h time-only clock, battery icon hidden${NC}"
 echo
 
 # ============================================================================
@@ -187,6 +196,30 @@ echo -e "${GREEN}  ✓ Instant Dock, faster resize/Mission Control, compact side
 echo
 
 # ============================================================================
+# TRACKPAD & DESKTOP
+# ============================================================================
+echo -e "${BLUE}Trackpad & desktop${NC}"
+
+# Three-finger drag. Stock: off. Move a window or select text by dragging
+# three fingers, instead of physically clicking-and-holding. Set on both the
+# built-in (AppleMultitouchTrackpad) and Bluetooth trackpad domains.
+#
+# May need a logout — this is an Accessibility pointer setting, and macOS
+# sometimes only re-reads it at login. If it hasn't taken after logging back
+# in, toggle it once in System Settings -> Accessibility -> Pointer Control ->
+# Trackpad Options -> Use trackpad for dragging (three-finger drag).
+set_default com.apple.AppleMultitouchTrackpad TrackpadThreeFingerDrag -bool true
+set_default com.apple.driver.AppleBluetoothMultitouch.trackpad TrackpadThreeFingerDrag -bool true
+
+# Stock (Sonoma+): true. Clicking any exposed patch of wallpaper sweeps every
+# window aside to reveal the desktop. It fires constantly by accident on a
+# busy screen. Off means the desktop only shows on an explicit gesture (hot
+# corner / Mission Control). Owned by WindowManager (Stage Manager's process).
+set_default com.apple.WindowManager EnableStandardClickToShowDesktop -bool false
+echo -e "${GREEN}  ✓ Three-finger drag on, click-to-show-desktop off${NC}"
+echo
+
+# ============================================================================
 # FINDER
 # ============================================================================
 echo -e "${BLUE}Finder${NC}"
@@ -227,7 +260,12 @@ set_default -globalDomain PMPrintingExpandedStateForPrint -bool true
 
 # Stock: true. Default new documents to the local disk, not iCloud Drive.
 set_default -globalDomain NSDocumentSaveNewDocumentsToCloud -bool false
-echo -e "${GREEN}  ✓ Path + status bar, no .DS_Store on network/USB, expanded dialogs${NC}"
+
+# Stock: true — "Remove items from the Trash after 30 days" is ON by default.
+# That's a silent data-loss trap: something deleted and forgotten disappears
+# for good a month later. Off means the Trash holds until you empty it.
+set_default com.apple.finder FXRemoveOldTrashItems -bool false
+echo -e "${GREEN}  ✓ Path + status bar, no .DS_Store, expanded dialogs, Trash kept${NC}"
 echo
 
 # ============================================================================
@@ -350,6 +388,24 @@ echo -e "${GREEN}  ✓ No Photos on plug-in, no Chrome swipe-back, plain-text Te
 echo
 
 # ============================================================================
+# PRIVACY
+# ============================================================================
+echo -e "${BLUE}Privacy${NC}"
+
+# Stop the Look Up panel (Ctrl-click -> Look Up, and the dictionary popover)
+# from sending the selected text to Apple for online suggestions. Local
+# dictionary and file search keep working.
+#
+# Caveat for macOS 26: Spotlight's own web/Siri suggestions have largely moved
+# behind System Settings -> Spotlight and are partly server-side, so this key
+# covers Look Up reliably but may not suppress every online Spotlight result.
+# The authoritative switch is System Settings -> Spotlight -> Search results,
+# and Siri Suggestions.
+set_default com.apple.lookup LookupSuggestionsDisabled -bool true
+echo -e "${GREEN}  ✓ Look Up online suggestions disabled${NC}"
+echo
+
+# ============================================================================
 # TERMINALS
 # ============================================================================
 echo -e "${BLUE}Terminals${NC}"
@@ -413,14 +469,16 @@ echo
 # ============================================================================
 # RESTART AFFECTED PROCESSES
 # ============================================================================
-echo -e "${YELLOW}Restarting Finder, Dock and ControlCenter...${NC}"
+echo -e "${YELLOW}Restarting Finder, Dock, ControlCenter and WindowManager...${NC}"
 killall Finder 2>/dev/null || true
 killall Dock 2>/dev/null || true
-# ControlCenter owns the menu bar clock, so this picks the clock format up
+# ControlCenter owns the menu bar clock + battery item, so this picks those up
 # immediately. It does NOT pick up the item spacing above — that genuinely
 # needs a logout.
 killall ControlCenter 2>/dev/null || true
-echo -e "${GREEN}  ✓ Finder, Dock and clock settings are live now${NC}"
+# WindowManager owns click-to-show-desktop.
+killall WindowManager 2>/dev/null || true
+echo -e "${GREEN}  ✓ Finder, Dock, clock and desktop settings are live now${NC}"
 echo
 
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
