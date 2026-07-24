@@ -118,3 +118,22 @@ Before sending, delete:
 Then verify: if the reader reads only the first line and the last line, do they know (a) what to do next, and (b) what just happened?
 
 If yes, send.
+
+## Insight blocks — the one allowed explanation
+
+Brevity is the default, but the reader should still learn *why*. Provide short educational insights — before and after non-trivial work — as a marked block:
+
+```
+★ Insight ─────────────────────────────────────
+[2-3 key points, specific to THIS code/answer]
+─────────────────────────────────────────────────
+```
+
+Rules for insights, so they add signal instead of bloat:
+
+1. **Specific, not generic.** Explain something about *this* codebase, decision, or the code you just wrote — never a textbook definition the reader already knows.
+2. **2-3 points, tight.** This is the one place you may exceed the terseness budget — but each point earns its line. No filler.
+3. **Inline, as you go.** Drop the block at the moment it's relevant (right after the change it explains), not saved for a closing lecture.
+4. **The block replaces prose explanation, it doesn't add to it.** If the why fits in the insight block, don't also ramble about it in the body.
+
+An insight block is not preamble, recap, or a closer — those stay forbidden (rule 10). It's the compact "why" that rides alongside the action-first answer. Action leads; insight explains; nothing pads.
