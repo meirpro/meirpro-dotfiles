@@ -143,12 +143,48 @@ When asked to verify that a system behaves as intended — and then fix what's f
 
 - **`filesystem` MCP server — how to give it access per project** (installed user-scope: `@modelcontextprotocol/server-filesystem`, pinned version in `~/.claude.json` → `mcpServers.filesystem`). The server can ONLY read/write inside its **allowed directories**, set two ways: (1) the command-line path args, and (2) **MCP roots** the client sends at connect-time — and **roots, when provided, completely *replace* the command-line args**. Claude Code answers `roots/list` with **the single directory you launched `claude` from** (per https://code.claude.com/docs/en/mcp.md), so the practical rule is: **the server can touch the directory you started `claude` in, plus everything under it.** To grant access to more in a given session, launch `claude` from a parent dir that covers what you need. The baked-in fallback arg is `~/git` (covers every repo there) and is used only if roots aren't active (e.g. the `claude mcp list` health check). Net effect: any repo under `~/git` is always reachable; a project *outside* it is reachable when launched from there (roots) or by appending its path to `mcpServers.filesystem.args`. **Verify in a fresh session** with the `list_allowed_directories` tool — newly-added MCP servers only load on session restart, and that tool shows exactly what the server resolved (confirms whether roots replaced the fallback).
 
-## Plugin Management — off-by-default, opt-in per project
+## Global vs per-project: plugins, MCPs, skills — off-by-default, opt-in per project
+
+**The deciding factor is cost-per-session, and it differs by category:**
+- **Plugins** load into *every* session and cost tokens each time → keep the global core LEAN; opt into the rest per-project.
+- **MCP servers** SPAWN at every session start and *block the prompt* until they're up (a flaky `@latest` can hang the whole session) → global should be NEAR-ZERO; project MCPs live in the repo's config.
+- **Skills** are invoked on-demand; only their one-line descriptions sit in context → cheapest, so general-purpose skills can be global, but a pile of stack-specific ones still bloats every session's context.
+
+**One rule across all three: cheap-and-universal → global; expensive-or-stack-specific → per-project.**
+
+### Plugins
 
 - **Plugins are DISABLED by default globally; each project enables only what it needs.** The global `enabledPlugins` map in `~/.claude/settings.json` keeps a **lean core ON** (loads in *every* session — costs tokens each time) and everything else **OFF**. A project turns on extras in its own `<repo>/.claude/settings.json` → `enabledPlugins` (project scope **overrides** global for that plugin). Keep the global core small; never enable a project-type-specific plugin globally.
 - **Current global core (ON everywhere):** `superpowers`, `claude-md-management`, `context7`, `security-guidance`, `explanatory-output-style`, `chrome-devtools-mcp`. Everything else is `false` globally and opted into per-project.
 - **When starting / first working in a project, look at its stack + services and enable the RELEVANT plugins per-project** (don't enable globally). Quick map: Cloudflare Workers/D1/R2 → `cloudflare`; Neon/Postgres → `neon`; heavy UI / design work → `ui-ux-pro-max`; web a11y → `accessibility-compliance`; backend API framework → `api-scaffolding`; Stripe payments → `stripe`; building on the Agent SDK → `agent-sdk-dev`. (e.g. `shop.sweetrobo.com` enables `cloudflare` + `stripe`; the CRM would enable `neon` instead of `cloudflare`.)
 - **How:** `claude plugin enable <plugin> -s project` / `claude plugin install <plugin>@<marketplace> --scope project`, or edit `<repo>/.claude/settings.json` directly, then **`/reload-plugins`** (or restart) to apply. ⚠ `claude plugin list` / `/doctor` can report stale "enabled in project settings but isn't installed" errors from the *running* session until a reload — verify against the on-disk `enabledPlugins`, not the live list. Editing `~/.claude/settings.json` affects ALL projects, so confirm before flipping global entries.
+- **"Install globally, default off, enable per-project" is the intended pattern** for a stack plugin used in several repos: install at **user scope** (available everywhere), keep it `false` in the global `enabledPlugins` (default off), set it `true` in each relevant repo's `.claude/settings.json`. That's exactly what Cloudflare's plugin wants (see below).
+
+### MCP servers
+
+- **Global MCP servers = minimal.** Each entry in `~/.claude.json` → `mcpServers` spawns at *every* session start and blocks the prompt until ready. Only servers that are lightweight AND useful everywhere belong global.
+- **Global set:** `context7` (docs lookup; pinned to an exact version — NEVER `@latest`, which re-resolves over the network every launch and can hang the session), and `filesystem` (user-scoped, `~/git` fallback root).
+- **Everything stack-specific is per-project** — put it in the repo's own MCP config, not global. Add with `claude mcp add <name> -s project -- <cmd>`. There is **no "installed-globally-but-off, toggle per project"** mode for MCPs (unlike plugins): a global MCP always runs. So per-project config is the only way to avoid paying its startup cost in unrelated sessions.
+- **Playwright / browser automation → per-project.** The official `playwright` PLUGIN wraps Microsoft's `@playwright/mcp` (same source this file's Playwright notes reference) — prefer the plugin (install user-scope, default off, enable per browser-repo) for managed updates and per-project toggling. Use a direct `claude mcp add ... @playwright/mcp@<pinned>` only when you specifically want the persistent-mode / `--output-dir` setup documented above (needed for download-heavy work; isolated mode drops downloads into ephemeral tmp).
+
+### Skills
+
+- **Global skills = general-purpose, cross-project only.** Installed to `~/.claude/skills/` (or symlinked from this repo). Current global set: `get-to-the-point`, `morning`, `pptx`, `xlsx`, `transcribe-audio`, `lottie-animations`.
+- **Project-specific skills live in the repo's `.claude/skills/`** (e.g. a booth-print-preview skill belongs in the photobooth/rotrics repo, not global).
+- **Watch for stack-specific skills that leaked into global** — they load their descriptions into every unrelated session. (Known open case: a set of Cloudflare skills — `cloudflare`, `wrangler`, `durable-objects`, `workers-best-practices`, `web-perf`, `turnstile-spin`, `sandbox-sdk`, `agents-sdk`, `cloudflare-one*` — are currently installed globally and arguably belong per-project; decision deferred.)
+
+### Cloudflare specifically
+
+Cloudflare's `https://developers.cloudflare.com/agent-setup/prompt.md` is **setup guidance** (run-these-commands), not a config object. It installs two things that split differently:
+- **CF Skills / plugin → per-project.** Use the global-install / default-off / enable-per-CF-repo pattern above.
+- **CF MCP servers → per-project only.** They block startup, so never global; add them inside the CF repos. Run the `prompt.md` commands *from within a Cloudflare repo*, not globally.
+
+### Open reconciliation items (as of 2026-07-24)
+
+The live machine is out of sync with this policy in both directions; deferred to a focused session:
+- **Global core plugins not all installed** — only `superpowers` + `frontend-design` are installed; install `claude-md-management`, `context7`, `security-guidance`, `explanatory-output-style`, `chrome-devtools-mcp` at user scope to complete the core.
+- **`frontend-design`** is enabled globally but isn't in the core — decide keep vs per-project.
+- **11 Cloudflare skills are global** (see Skills above) — decide global vs per-project.
 
 ## Session Time Tracking
 
