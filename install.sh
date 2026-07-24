@@ -201,8 +201,13 @@ if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
 
     # Create symlinks for shell configs
     echo -e "${YELLOW}Creating symlinks for shell dotfiles...${NC}"
-    create_symlink "$REPO_DIR/shell/.aliases" "$HOME/.aliases" ".aliases"
-    create_symlink "$REPO_DIR/shell/.functions" "$HOME/.functions" ".functions"
+    # Canonical sources are aliases.sh / functions.sh, NOT the .aliases /
+    # .functions dotfiles (removed 2026-07-23). shell/ghmp sources
+    # functions.sh by path as its single source of truth, and README.md +
+    # claude/CLAUDE.md both document functions.sh — the installer used to
+    # link the stale dotfile copies, so `ghmp` was never defined.
+    create_symlink "$REPO_DIR/shell/aliases.sh" "$HOME/.aliases" ".aliases"
+    create_symlink "$REPO_DIR/shell/functions.sh" "$HOME/.functions" ".functions"
     create_symlink "$REPO_DIR/shell/.exports" "$HOME/.exports" ".exports"
     create_symlink "$REPO_DIR/shell/.bash_prompt" "$HOME/.bash_prompt" ".bash_prompt"
     create_symlink "$REPO_DIR/shell/.zshrc" "$HOME/.zshrc" ".zshrc"
@@ -239,6 +244,13 @@ if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
     chmod +x "$REPO_DIR/git/safe-git"
     mkdir -p "$HOME/bin"
     create_symlink "$REPO_DIR/git/safe-git" "$HOME/bin/git" "git wrapper (~/bin/git → safe-git)"
+
+    # ghmp as an executable too, so non-interactive shells (subagents, CI
+    # one-liners) can call it without sourcing ~/.zshrc first. The wrapper
+    # resolves functions.sh relative to its own real path, so the symlink
+    # works from anywhere the repo is checked out.
+    chmod +x "$REPO_DIR/shell/ghmp"
+    create_symlink "$REPO_DIR/shell/ghmp" "$HOME/bin/ghmp" "ghmp (~/bin/ghmp)"
     echo
 
     # Copy template files (don't symlink these - user needs to customize)

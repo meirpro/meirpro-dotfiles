@@ -16,6 +16,10 @@ alias dt="cd ~/Desktop"
 alias p="cd ~/projects"
 alias g="git"
 alias gp="git push"
+# NB: not `gs` — `mergepdf` below expands to ghostscript's `gs`, and alias
+# expansion is recursive at command position, so `gs` would shadow it.
+alias gst="git status"
+alias gss="git status --short --branch"
 # cld function moved to ~/.functions (supports -r flag for resume)
 
 # Detect which `ls` flavor is in use
@@ -29,6 +33,9 @@ fi
 
 # List all files colorized in long format
 alias l="ls -lF ${colorflag}"
+
+# List all files colorized in long format, including dot files
+alias ll="ls -lhF ${colorflag}"
 
 # List all files colorized in long format, excluding . and ..
 alias la="ls -lAF ${colorflag}"
@@ -106,7 +113,8 @@ alias hidedesktop="defaults write com.apple.finder CreateDesktop -bool false && 
 alias showdesktop="defaults write com.apple.finder CreateDesktop -bool true && killall Finder"
 
 # URL-encode strings
-alias urlencode='python -c "import sys, urllib as ul; print ul.quote_plus(sys.argv[1]);"'
+# python3: urllib.quote_plus moved to urllib.parse, and print is a function.
+alias urlencode='python3 -c "import sys, urllib.parse as ul; print(ul.quote_plus(sys.argv[1]))"'
 
 # Merge PDF files, preserving hyperlinks
 # Usage: `mergepdf input{1,2,3}.pdf`

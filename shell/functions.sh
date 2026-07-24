@@ -82,7 +82,16 @@ function server() {
 	sleep 1 && open "http://localhost:${port}/" &
 	# Set the default Content-Type to `text/plain` instead of `application/octet-stream`
 	# And serve everything as UTF-8 (although not technically correct, this doesn’t break anything for binary files)
-	python -c $'import SimpleHTTPServer;\nmap = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map;\nmap[""] = "text/plain";\nfor key, value in map.items():\n\tmap[key] = value + ";charset=UTF-8";\nSimpleHTTPServer.test();' "$port";
+	#
+	# python3 port. Three differences from the python2 original:
+	#   - SimpleHTTPServer became http.server
+	#   - test() no longer reads argv; the port is a keyword arg
+	#   - extensions_map is now a MINIMAL dict (only '', .py, .c, .h) rather
+	#     than being seeded from the mimetypes table, so appending charset
+	#     to it alone would leave .html/.css/.js without one. We seed it
+	#     from mimetypes first to restore the original behaviour.
+	# list(m) rather than m.items() because we mutate while iterating.
+	python3 -c $'import sys, mimetypes, http.server as h;\nmimetypes.init();\nm = h.SimpleHTTPRequestHandler.extensions_map;\nm.update(mimetypes.types_map);\nm[""] = "text/plain";\nfor k in list(m):\n\tm[k] = m[k].split(";")[0] + ";charset=UTF-8";\nh.test(HandlerClass=h.SimpleHTTPRequestHandler, port=int(sys.argv[1]))' "$port";
 }
 
 # Start a PHP server from a directory, optionally specifying the port
@@ -173,16 +182,25 @@ function tre() {
 }
 
 # Claude Code shortcut with resume support
+# Uses claude-timed wrapper when available, falls back to plain claude
 # Usage: cld [options] [query]
 #        cld -r <partial-session-id> [query]  # Resume session with partial ID (searches for match)
 function cld() {
+	local cmd="claude"
+	if command -v claude-timed &>/dev/null; then
+		cmd="claude-timed"
+		printf '\033[32m⏱ Timed session\033[0m — stats: \033[36mclaude-timed --stats today\033[0m\n' >&2
+	else
+		printf '\033[33m[cld] claude-timed not found, using claude directly\033[0m\n' >&2
+	fi
+
 	if [[ "$1" == "-r" ]]; then
 		shift
 		local partial_id="$1"
 
 		# If no ID provided, use interactive picker
 		if [[ -z "$partial_id" ]]; then
-			claude --resume
+			"$cmd" --resume
 			return
 		fi
 
@@ -205,7 +223,7 @@ function cld() {
 		# If exactly one match found, use it
 		if [[ ${#matches[@]} -eq 1 ]]; then
 			shift  # Remove the partial ID from arguments
-			claude --resume "${matches[0]}" "$@"
+			"$cmd" --resume "${matches[0]}" "$@"
 		elif [[ ${#matches[@]} -gt 1 ]]; then
 			echo "Multiple sessions found matching '$partial_id':"
 			printf '  %s\n' "${matches[@]}"
@@ -213,10 +231,10 @@ function cld() {
 		else
 			# No matches found, maybe it's a full ID or try interactive
 			shift
-			claude --resume "$partial_id" "$@"
+			"$cmd" --resume "$partial_id" "$@"
 		fi
 	else
-		claude "$@"
+		"$cmd" "$@"
 	fi
 }
 
@@ -338,13 +356,30 @@ function ghmp() {
 	echo "→ merging PR #$pr (squash)"
 	gh pr merge "$pr" --squash || return $?
 
-	# 4. Fast-forward the local target branch.
-	echo "→ pulling $branch"
-	git checkout "$branch" >/dev/null 2>&1 || {
-		echo "ghmp: could not checkout $branch" >&2
+	# 4. Fast-forward the local target branch WITHOUT moving HEAD.
+	#
+	# This used to `git checkout "$branch"` first. That is wrong on a shared
+	# working tree: HEAD is a shared resource, so switching it yanks every
+	# parallel agent and the user onto another branch mid-edit. safe-git
+	# rule 7 (added 2026-07-21) refuses exactly that, which made every ghmp
+	# run fail its ff-pull — the squash landed server-side but the local
+	# branch never advanced. The old CLAUDE.md note blaming worktrees for
+	# "could not checkout main" was really this, one layer down.
+	#
+	# `git fetch origin <branch>:<branch>` advances the local ref directly
+	# and leaves HEAD alone. Git refuses it when the target is checked out
+	# (here or in another worktree), so handle the current-branch case with
+	# a plain ff-pull, which needs no checkout either.
+	echo "→ advancing $branch"
+	if [[ "$branch" == "$(git branch --show-current)" ]]; then
+		git pull --ff-only && git log --oneline -3
+	elif git fetch origin "$branch:$branch"; then
+		git log --oneline -3 "$branch"
+	else
+		echo "ghmp: could not fast-forward $branch — it may be checked out in another worktree." >&2
+		echo "  The squash-merge itself succeeded; only the local ref lagged." >&2
 		return 1
-	}
-	git pull --ff-only && git log --oneline -3
+	fi
 }
 
 
