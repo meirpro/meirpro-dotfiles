@@ -29,8 +29,21 @@ config.font = wezterm.font_with_fallback {
 }
 config.font_size = 13.0
 
--- ── Appearance (Solarized Dark, matching the rest of the dotfiles) ───
-config.color_scheme = 'Solarized Dark (base16)'
+-- ── Appearance ───────────────────────────────────────────────────────
+-- Change this string and SAVE — WezTerm hot-reloads, the window updates
+-- instantly. Names must match EXACTLY (a wrong name silently falls back
+-- to default). Browse all 1078 at https://wezfurlong.org/wezterm/
+-- colorschemes/index.html, or list them: see the probe note below.
+-- Lighter picks that exist in this build:
+--   'Builtin Solarized Light'  (matches the rest of the Solarized setup)
+--   'Catppuccin Latte'  'Builtin Light'  'One Light (base16)'
+--   'Gruvbox light, soft (base16)'  'PaperColor Light (base16)'
+-- Softer DARKs (if you want dark but less harsh):
+--   'Catppuccin Frappe'  'Gruvbox Dark'  'Builtin Solarized Dark'
+config.color_scheme = 'Builtin Solarized Light'
+-- Prefer to hand-tune instead of a preset? Comment out color_scheme and
+-- set colors directly:
+--   config.colors = { background = '#1c1c2b', foreground = '#e0e0e0' }
 config.window_decorations = 'RESIZE'
 config.enable_tab_bar = true
 config.hide_tab_bar_if_only_one_tab = true
