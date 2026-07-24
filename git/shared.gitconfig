@@ -1,0 +1,223 @@
+# Git aliases, kept in the repo and pulled into ~/.gitconfig via:
+#
+#   [include]
+#       path = ~/git/meirpro-dotfiles/git/aliases.gitconfig
+#
+# Included rather than copied so edits here reach every machine without
+# re-running the installer, and so your ~/.gitconfig keeps only the
+# machine-specific bits (user, credentials, lfs).
+#
+# Source: git/.gitconfig.template (Mathias Bynens' dotfiles), minus two
+# aliases that safe-git refuses by design — see the note at the bottom.
+
+[core]
+
+	# WITHOUT THESE TWO LINES THE GLOBAL IGNORE FILE DOES NOTHING.
+	# install.sh symlinks ~/.gitignore -> git/.gitignore_global and
+	# ~/.gitattributes -> git/.gitattributes, but symlinking alone is
+	# inert: git only consults them when told to, and the settings that
+	# do the telling live in .gitconfig.template — which install.sh
+	# skips whenever ~/.gitconfig already exists. On this machine that
+	# left .DS_Store, *.pyc and node_modules/ showing up as untracked in
+	# every repo (verified 2026-07-23).
+	excludesfile = ~/.gitignore
+	attributesfile = ~/.gitattributes
+
+	# Flag whitespace problems in `git diff`. Only ever COLOURS the diff
+	# and warns on `git apply`; never edits your files.
+	whitespace = space-before-tab,-indent-with-non-tab,trailing-space
+
+	# Cache untracked-file scans. Pure speed-up on large repos; git
+	# invalidates it automatically. No behaviour change.
+	untrackedCache = true
+
+[apply]
+	# `git apply` fixes whitespace errors in the patch instead of
+	# refusing it. Affects `git apply` only, not commits.
+	whitespace = fix
+
+[branch]
+	# `git branch` lists most-recently-committed first instead of
+	# alphabetically. Display order only.
+	sort = -committerdate
+
+[color]
+	# Colour when writing to a terminal, plain when piped. This is
+	# already git's default; stated explicitly so it survives a stray
+	# `color.ui = false` elsewhere.
+	ui = auto
+
+[color "branch"]
+	current = yellow reverse
+	local = yellow
+	remote = green
+
+[color "diff"]
+	meta = yellow bold
+	frag = magenta bold
+	old = red
+	new = green
+
+[color "status"]
+	added = yellow
+	changed = green
+	untracked = cyan
+
+[diff]
+	# Detect copies as well as renames, so a file copied then edited
+	# shows as a copy rather than a wholesale addition. Slightly slower
+	# on very large diffs; no effect on what gets committed.
+	renames = copies
+
+[diff "bin"]
+	# Show binary files as a hexdump in diffs. Inert unless a
+	# .gitattributes marks a path `diff=bin` — which only works now that
+	# attributesfile above is wired up.
+	textconv = hexdump -v -C
+
+[merge]
+	# Include the one-line summaries of merged commits in the merge
+	# commit message. Message content only.
+	log = true
+
+[push]
+	# Push annotated tags reachable from the pushed commits, so a tagged
+	# release doesn't need a separate `git push --tags`. Note: this
+	# pushes MORE than before — intended, but it is the one setting here
+	# that changes what lands on the remote.
+	followTags = true
+
+[init]
+	# New repos start on `main`. Silences git's hint about the default
+	# branch name. Affects `git init` only; existing repos untouched.
+	defaultBranch = main
+
+[gpg]
+	# SSH-based commit signing, not GPG. Restores parity with the old
+	# machine, where every commit carried an SSH signature — without
+	# this, new commits show "Unverified" on GitHub.
+	format = ssh
+
+[gpg "ssh"]
+	# Lets `git log --show-signature` and %G? actually VERIFY signatures
+	# rather than reporting "no signature". Without it your own signed
+	# commits read as unsigned locally.
+	allowedSignersfile = ~/.ssh/allowed_signers
+
+[user]
+	# Public half only — the private key stays in ~/.ssh and is never
+	# referenced here. Machine-portable because it's a ~ path.
+	signingkey = ~/.ssh/git_signing_ed25519.pub
+
+[commit]
+	# Verified 2026-07-23: key has no passphrase, so this is
+	# non-interactive. To disable temporarily:
+	#     git -c commit.gpgsign=false commit ...
+	# or permanently: git config --global commit.gpgsign false
+	gpgsign = true
+
+[tag]
+	gpgsign = true
+
+# ── Deliberately NOT enabled from .gitconfig.template ────────────────
+# help.autocorrect = 1
+#     Git RUNS its guessed correction after 0.1s rather than just
+#     suggesting it. A typo that resolves to a destructive command
+#     executes on its own. Use `autocorrect = prompt` if you want it.
+# core.precomposeunicode = false
+#     Overrides git's macOS default (true). Stops git normalising NFD
+#     filenames to NFC, so accented/Hebrew names can appear twice or
+#     fail to match between machines.
+# core.trustctime = false
+#     Only useful when a tool rewrites inode ctime; costs a full stat
+#     comparison otherwise.
+# push.default = simple
+#     Already git's default since 2.0. Redundant.
+# [url] gh:/github:/gist: shorthands
+#     Handy, but the pushInsteadOf rules rewrite to SSH — needs a
+#     GitHub SSH key. Your remotes are HTTPS today.
+
+[alias]
+
+	# View abbreviated SHA, description, and history graph of the latest 20 commits.
+	l = log --pretty=oneline -n 20 --graph --abbrev-commit
+
+	# View the current working tree status using the short format.
+	s = status -s
+
+	# Show the diff between the latest commit and the current state.
+	d = !"git diff-index --quiet HEAD -- || clear; git --no-pager diff --patch-with-stat"
+
+	# `git di $number` shows the diff between the state `$number` revisions ago and the current state.
+	di = !"d() { git diff --patch-with-stat HEAD~$1; }; git diff-index --quiet HEAD -- || clear; d"
+
+	# Pull in remote changes for the current repository and all its submodules.
+	p = pull --recurse-submodules
+
+	# Clone a repository including all submodules.
+	c = clone --recursive
+
+	# Show verbose output about tags, branches or remotes.
+	tags = tag -l
+	branches = branch --all
+	remotes = remote --verbose
+
+	# List aliases.
+	aliases = config --get-regexp alias
+
+	# Amend the currently staged files to the latest commit.
+	amend = commit --amend --reuse-message=HEAD
+
+	# Credit an author on the latest commit.
+	credit = "!f() { git commit --amend --author \"$1 <$2>\" -C HEAD; }; f"
+
+	# Interactive rebase with the given number of latest commits.
+	reb = "!r() { git rebase -i HEAD~$1; }; r"
+
+	# Remove the old tag with this name and tag the latest commit with it.
+	retag = "!r() { git tag -d $1 && git push origin :refs/tags/$1 && git tag $1; }; r"
+
+	# Find branches containing commit.
+	fb = "!f() { git branch -a --contains $1; }; f"
+
+	# Find tags containing commit.
+	ft = "!f() { git describe --always --contains $1; }; f"
+
+	# Find commits by source code.
+	fc = "!f() { git log --pretty=format:'%C(yellow)%h  %Cblue%ad  %Creset%s%Cgreen  [%cn] %Cred%d' --decorate --date=short -S$1; }; f"
+
+	# Find commits by commit message.
+	fm = "!f() { git log --pretty=format:'%C(yellow)%h  %Cblue%ad  %Creset%s%Cgreen  [%cn] %Cred%d' --decorate --date=short --grep=$1; }; f"
+
+	# Remove branches that have already been merged with main ("delete merged").
+	dm = "!git branch --merged | grep -v '\\*' | xargs -n 1 git branch -d"
+
+	# List contributors with number of commits.
+	contributors = shortlog --summary --numbered
+
+	# Show the email you're committing as.
+	whoami = config user.email
+
+	# ── Visibility into what git is NOT tracking ──────────────────────
+	# `git status` hides anything matched by .gitignore, so a file can be
+	# sitting in your tree, invisible to status AND to the shell prompt's
+	# `?` marker, forever. These make that explicit.
+
+	# Files present but untracked (what the prompt's `?` counts).
+	untracked = ls-files --others --exclude-standard
+
+	# Files present but IGNORED — the real blind spot. Nothing else surfaces these.
+	ignored = ls-files --others --ignored --exclude-standard
+
+	# Which ignore rule is hiding a given path, and from which file.
+	why = check-ignore -v
+
+	# ── Deliberately NOT included ─────────────────────────────────────
+	# ca = !git add -A && git commit -av
+	#     safe-git rule 1 refuses `git add -A`. Stage by name instead:
+	#       git add path/one path/two && git commit -m "msg"
+	#
+	# go = "!f() { git checkout -b \"$1\" ... }; f"
+	#     safe-git rule 7 refuses HEAD-moving checkout/switch on a shared
+	#     working tree. Use a worktree, which keeps its own HEAD:
+	#       git worktree add .claude/worktrees/<name> -b <branch>
