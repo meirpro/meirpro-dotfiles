@@ -89,11 +89,19 @@ set_default ch:-globalDomain NSStatusItemSelectionPadding -int 0
 # "Wed 23 Jul 18:44" vs "18:44" is a large chunk of the right-hand menu bar,
 # which is the same space the status icons are fighting over.
 #
-# 24-hour drops the trailing " PM" for another ~3 characters. Show24Hour
-# overrides the region's 12/24h default without changing the region itself.
+# 24-hour drops the trailing " PM" for another ~3 characters.
+#
+# Two keys, because macOS changed which one matters. The authoritative switch
+# on macOS 15/26 is AppleICUForce24HourTime in the global domain — the same
+# "24-Hour Time" toggle under Settings -> General -> Date & Time. The legacy
+# com.apple.menuextra.clock Show24Hour / ShowAMPM pair is no longer enough on
+# its own (setting Show24Hour while ShowAMPM stayed 1 left the clock on 12h).
+# Set all three so it works regardless of macOS version.
+set_default -globalDomain AppleICUForce24HourTime -bool true
 set_default com.apple.menuextra.clock ShowDate -int 2
 set_default com.apple.menuextra.clock ShowDayOfWeek -bool false
 set_default com.apple.menuextra.clock Show24Hour -bool true
+set_default com.apple.menuextra.clock ShowAMPM -bool false
 
 # Hide the built-in battery item from the menu bar entirely. Stats.app shows
 # battery instead, so the native icon is pure duplication eating the width
