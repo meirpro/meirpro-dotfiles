@@ -244,6 +244,7 @@ if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
 
     # Create symlinks for tool configs
     echo -e "${YELLOW}Creating symlinks for tool configuration...${NC}"
+    create_symlink "$REPO_DIR/tools/wezterm.lua" "$HOME/.wezterm.lua" ".wezterm.lua (RTL/Hebrew terminal)"
     create_symlink "$REPO_DIR/tools/.tmux.conf" "$HOME/.tmux.conf" ".tmux.conf"
     create_symlink "$REPO_DIR/tools/.screenrc" "$HOME/.screenrc" ".screenrc"
     create_symlink "$REPO_DIR/tools/.wgetrc" "$HOME/.wgetrc" ".wgetrc"
