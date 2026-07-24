@@ -27,14 +27,14 @@
 # Source this file from your interactive shell init. For bash:
 #
 #   # in ~/.bash_profile (or ~/.functions if you load that):
-#   [ -r ~/Documents/GitHub/meirpro-dotfiles/shell/safe-git-hook.sh ] && \
-#     source ~/Documents/GitHub/meirpro-dotfiles/shell/safe-git-hook.sh
+#   [ -r ~/git/meirpro-dotfiles/shell/safe-git-hook.sh ] && \
+#     source ~/git/meirpro-dotfiles/shell/safe-git-hook.sh
 #
 # For zsh:
 #
 #   # in ~/.zshrc:
-#   [ -r ~/Documents/GitHub/meirpro-dotfiles/shell/safe-git-hook.sh ] && \
-#     source ~/Documents/GitHub/meirpro-dotfiles/shell/safe-git-hook.sh
+#   [ -r ~/git/meirpro-dotfiles/shell/safe-git-hook.sh ] && \
+#     source ~/git/meirpro-dotfiles/shell/safe-git-hook.sh
 #
 # Idempotent — sourcing twice is harmless.
 #

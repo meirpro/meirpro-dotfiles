@@ -13,15 +13,29 @@
 # Rules enforced:
 #   1. `git add -A` (any spelling) — refused.
 #   2. `git add .`  — refused.
-#   3. Bare `git add` — refused (must be chained with commit; see #4).
-#   4. `git add` invocations that aren't combined with `git commit -m`
-#      in the SAME shell command — refused. This forces atomic
-#      stage+commit and prevents another agent / parallel session
-#      from sneaking files into the index between two separate calls.
-#   5. `git commit` (or `git commit -a`) without a preceding
-#      `git add <files>` in the same command — refused. Forces
-#      explicit file lists; bare `git commit` could ship whatever was
-#      already staged from a prior turn.
+#   3. Bare `git add` (no pathspec) — refused. Stage by explicit name.
+#   4. `git add` records a STAGE TOKEN: the repo it ran in and the
+#      exact set of paths it left staged. (It no longer refuses an add
+#      that isn't textually chained to a commit — see #5 for why.)
+#   5. `git commit` (or `git commit -a`) is refused unless a fresh
+#      stage token from this process ancestry exists, for THIS repo,
+#      whose recorded staged set still MATCHES the index exactly.
+#      Tokens are single-use and expire after STAGE_TOKEN_TTL.
+#
+#      This replaced a text-match over the parent shell's command line
+#      on 2026-07-23 — that approach was forgeable by a comment (see
+#      the Stage token section below). The state check is strictly
+#      stronger against the real threat: a parallel agent staging its
+#      own files between your add and your commit now changes the
+#      staged set, so the commit is refused. It is deliberately weaker
+#      in one place: a split `git add` … `git commit` from the same
+#      shell is ALLOWED if the index is untouched in between, because
+#      that is precisely the invariant the "same command" rule was a
+#      proxy for.
+#   6. `git reset --hard` with uncommitted changes in the working tree
+#      or index — refused, so one session's "fast-forward to origin"
+#      can't discard another's in-flight WIP (wiped 300+ lines on
+#      2026-05-24).
 #   7. `git checkout <branch>` / `git checkout -b` / `git switch ...`
 #      (ANY HEAD-moving form) — refused. A checkout's branch is a
 #      SHARED resource: parallel Claude sessions + the user all ride
@@ -72,6 +86,53 @@ if [ -z "${REAL_GIT:-}" ]; then
     exit 127
 fi
 
+STAGE_TOKEN_TTL=60           # seconds a stage token stays valid (see below)
+
+# ─────────────────────────────────────────────────────────────────
+# --selftest — is the wrapper actually in force?
+# ─────────────────────────────────────────────────────────────────
+# Every rule here depends on PATH resolving `git` to this wrapper. A
+# later PATH edit that puts /opt/homebrew/bin ahead of ~/bin disables
+# ALL of them silently — no error, no warning, git just behaves
+# normally again. This check must run before the subcommand dispatch
+# below, or `--selftest` would be forwarded to the real git.
+if [ "${1:-}" = "--selftest" ]; then
+    fail=0
+    printf 'safe-git selftest\n'
+    printf '  wrapper:   %s\n' "$WRAPPER_PATH"
+    printf '  real git:  %s\n' "$REAL_GIT"
+
+    resolved="$(command -v git 2>/dev/null || true)"
+    resolved_real=""
+    if [ -n "$resolved" ]; then
+        resolved_real="$(readlink -f "$resolved" 2>/dev/null \
+            || python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$resolved" 2>/dev/null \
+            || true)"
+    fi
+    if [ "$resolved_real" = "$WRAPPER_PATH" ]; then
+        printf '  PATH:      OK — git resolves to the wrapper (%s)\n' "$resolved"
+    else
+        printf '  PATH:      FAIL — git resolves to %s\n' "${resolved:-<nothing>}"
+        printf '             Rules are NOT in force. Put ~/bin ahead of %s.\n' "$(dirname "$REAL_GIT")"
+        fail=1
+    fi
+
+    if mkdir -p "$HOME/.cache" 2>/dev/null && [ -w "$HOME/.cache" ]; then
+        printf '  tokens:    OK — ~/.cache writable, TTL %ss\n' "$STAGE_TOKEN_TTL"
+    else
+        printf '  tokens:    FAIL — ~/.cache not writable; rule 5 cannot verify stages\n'
+        fail=1
+    fi
+
+    printf '  rules:     1-3 add form | 4-5 stage token | 6 reset --hard | 7 HEAD moves\n'
+    if [ "$fail" -eq 0 ]; then
+        printf '  result:    all checks passed\n'
+    else
+        printf '  result:    PROBLEMS FOUND\n'
+    fi
+    exit "$fail"
+fi
+
 # Detect the subcommand (first non-option arg). Skip global flags like
 # `git -c foo=bar add ...` so the rules still apply.
 SUBCMD=""
@@ -114,71 +175,73 @@ if [ "$BYPASS_SET" = "1" ]; then
     exec "$REAL_GIT" "$@"
 fi
 
-# Reconstruct the *original shell command line* if available. Three
-# sources, tried in this order:
+# ─────────────────────────────────────────────────────────────────
+# Stage token — how rules 4 and 5 know a commit belongs to its add.
+# ─────────────────────────────────────────────────────────────────
 #
-#   1. /proc/$PPID/cmdline on Linux — has the pipeline literally.
-#   2. ~/.cache/safe-git-cmd-<ppid> written by the shell-init hook
-#      (meirpro-dotfiles/shell/safe-git-hook.sh). This is how macOS
-#      interactive shells expose what the user typed — `ps -o command=`
-#      on the shell's own PID only shows `-bash`/`-zsh`, not the
-#      pipeline being executed. The hook captures `history 1` on every
-#      DEBUG trap (bash) or via `preexec` (zsh) and writes it to a
-#      per-shell file. We trust the file only if its mtime is fresh
-#      (≤ 10 seconds) so a stale capture from a prior pipeline can't
-#      let a split call sneak through. We walk the PID ancestry so
-#      that subshell invocations like `(git add foo && git commit bar)`
-#      still find the outer shell's capture.
-#   3. macOS fallback — `ps -o command= -p $PPID`. This works for
-#      `bash -c '<pipeline>'` invocations because the pipeline is the
-#      bash-c argv literally. Used by Claude Code's Bash tool and any
-#      shell-script invocation; doesn't help interactive shells.
+# These rules used to work by TEXT-MATCHING the parent process's
+# command line for `git add ... && ... git commit`. That was unsound:
+# `bash -c '<one simple command>'` makes bash *exec* rather than fork,
+# so $PPID skipped past bash to the outer shell — and for a Claude Code
+# agent that shell's argv is the agent's ENTIRE script. Any occurrence
+# of the pattern anywhere in it — a comment, an echo, a doc string —
+# authorised every add/commit in that script. Demonstrated 2026-07-23:
 #
-# Without any of these we conservatively return nothing, which causes
-# the rule checks to NOT fire (allow) — the wrapper's job is to catch
-# obvious foot-guns, not to deny every command when introspection
-# fails.
-get_parent_cmdline() {
-    local ppid="$PPID"
-    [ -z "$ppid" ] && return 1
+#   # comment mentioning: git add foo.txt && git commit -m "x"
+#   bash -c 'git commit -m "authorised-by-a-comment" --allow-empty'
+#   -> committed, rule 5 never fired.
+#
+# So we no longer parse text. We verify STATE, which comments cannot
+# forge: `git add` records what it actually staged, and `git commit`
+# refuses unless the index still matches that record exactly.
+#
+# This also detects the real threat the text rule only approximated —
+# a parallel agent slipping files into the index between your stage
+# and your commit changes the staged set, so the commit is refused.
+#
+# Consequence: shell/safe-git-hook.sh is now obsolete. It existed only
+# to expose the typed command line on interactive macOS shells. Nothing
+# reads it any more, and the 10-second capture window is gone with it.
 
-    # 1. Linux: PPID's cmdline shows the full pipeline.
-    if [ -r "/proc/$ppid/cmdline" ]; then
-        tr '\0' ' ' < "/proc/$ppid/cmdline"
-        return 0
-    fi
+# (STAGE_TOKEN_TTL is defined near the top, so --selftest can report it.)
 
-    # 2. Shell-init hook capture. Walk ancestors so subshells inherit
-    #    the outer shell's typed line.
-    local now p hook_file mtime age
-    now="$(date +%s 2>/dev/null)"
-    p="$ppid"
+# Token path for a given pid.
+stage_token_path() { printf '%s/.cache/safe-git-stage-%s' "$HOME" "$1"; }
+
+# Identity of the repo we're operating on, so a token from repo A can
+# never authorise a commit in repo B.
+repo_ident() {
+    "$REAL_GIT" rev-parse --absolute-git-dir 2>/dev/null || printf 'NO_REPO'
+}
+
+# The exact set of staged paths, sorted for a stable comparison.
+staged_set() {
+    "$REAL_GIT" diff --cached --name-only 2>/dev/null | LC_ALL=C sort
+}
+
+# Walk our process ancestry looking for a fresh, same-repo token.
+# Ancestry (not just $PPID) so `(git add f && git commit -m m)` in a
+# subshell still finds the token its sibling wrote.
+find_stage_token() {
+    local now p tok mtime age
+    now="$(date +%s 2>/dev/null)" || return 1
+    p="$PPID"
     while [ -n "$p" ] && [ "$p" != "1" ] && [ "$p" != "0" ]; do
-        hook_file="$HOME/.cache/safe-git-cmd-$p"
-        if [ -f "$hook_file" ] && [ -n "$now" ]; then
-            # macOS stat (-f %m) with Linux stat (-c %Y) fallback.
-            mtime="$(stat -f %m "$hook_file" 2>/dev/null || stat -c %Y "$hook_file" 2>/dev/null)"
+        tok="$(stage_token_path "$p")"
+        if [ -f "$tok" ]; then
+            mtime="$(stat -f %m "$tok" 2>/dev/null || stat -c %Y "$tok" 2>/dev/null)"
             if [ -n "$mtime" ]; then
                 age=$((now - mtime))
-                if [ "$age" -ge 0 ] && [ "$age" -le 10 ]; then
-                    cat "$hook_file" 2>/dev/null
+                if [ "$age" -ge 0 ] && [ "$age" -le "$STAGE_TOKEN_TTL" ]; then
+                    printf '%s' "$tok"
                     return 0
                 fi
             fi
         fi
-        # Walk one step up the process tree.
         p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"
     done
-
-    # 3. macOS PS fallback — works for `bash -c '<pipeline>'`.
-    if command -v ps >/dev/null 2>&1; then
-        ps -ww -o command= -p "$ppid" 2>/dev/null
-        return 0
-    fi
     return 1
 }
-
-PARENT_CMD="$(get_parent_cmdline 2>/dev/null || true)"
 
 deny() {
     # $1 = reason, $2 = explanation, remaining args = original git argv
@@ -204,9 +267,9 @@ $explain
      bash -c 'git add <file> && git commit -m "msg"'
 
  Disable wrapper entirely:
-   /opt/homebrew/bin/git ...   # call real git by full path
+   $REAL_GIT ...   # call real git by full path
    # or remove ~/bin/git (the symlink) — the rule lives in
-   # ~/Documents/GitHub/meirpro-dotfiles/git/safe-git
+   # $WRAPPER_PATH
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF
     exit 64  # EX_USAGE
@@ -241,23 +304,30 @@ if [ "$SUBCMD" = "add" ]; then
    git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@"
     fi
 
-    # Atomicity: somewhere in the parent shell command we need the
-    # pattern `git add <stuff> && <stuff> git commit` where the gaps
-    # contain no shell-statement separators (`;`, `|`). Env-var
-    # prefixes (`PATH=foo git commit`) are intentionally allowed —
-    # otherwise `PATH="$HOME/bin:$PATH" git add foo && PATH=... git
-    # commit` would falsely fail. `&` is allowed as a single
-    # character (it's `&&` we care about); the regex requires the
-    # full `&&` literal as the chain operator.
-    if [ -n "$PARENT_CMD" ]; then
-        if [[ "$PARENT_CMD" =~ git[[:space:]]+add[[:space:]]+[^\;\|]*\&\&[^\;\|]*git[[:space:]]+commit ]]; then
-            : # OK — chained add ... && ... git commit somewhere
-        else
-            deny "'git add' must be chained with 'git commit -m \"...\"' in the same shell command." \
-                "Why: a separate 'git add' invocation lets a parallel agent slip files into the index between your stage and your commit. Combine them:
-   git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@"
-        fi
+    # Atomicity is enforced on the COMMIT side now (rule 5), by
+    # comparing the index against what this add actually staged. So
+    # here we just do the add and record the resulting staged set.
+    #
+    # Note we deliberately do NOT `exec` — we need control back to
+    # write the token. Git's exit status is preserved either way.
+    if "$REAL_GIT" "$@"; then
+        add_status=0
+    else
+        add_status=$?
     fi
+    [ "$add_status" -eq 0 ] || exit "$add_status"
+
+    tok="$(stage_token_path "$PPID")"
+    mkdir -p "$(dirname "$tok")" 2>/dev/null || true
+    (
+        umask 077
+        {
+            printf 'repo=%s\n' "$(repo_ident)"
+            printf -- '--\n'
+            staged_set
+        } > "$tok"
+    ) 2>/dev/null || true
+    exit 0
 fi
 
 # ─────────────────────────────────────────────────────────────────
@@ -278,18 +348,46 @@ if [ "$SUBCMD" = "commit" ]; then
         esac
     done
 
-    if [ -n "$PARENT_CMD" ]; then
-        # Same regex as the add side — `git add ... && ... git commit`
-        # with no shell separators (`;`, `|`) between. Env-var
-        # prefixes between `&&` and `git commit` are allowed.
-        if [[ "$PARENT_CMD" =~ git[[:space:]]+add[[:space:]]+[^\;\|]*\&\&[^\;\|]*git[[:space:]]+commit ]]; then
-            : # OK
-        else
-            deny "'git commit' must be preceded by 'git add <files>' in the same shell command." \
-                "Why: a bare 'git commit' ships whatever was staged on a prior turn — possibly by another agent. Combine stage + commit:
+    # State check, not a text check. A stage token is written by rule 4
+    # when `git add` runs; it records the repo and the exact staged set.
+    # We require a fresh token from our own process ancestry, for THIS
+    # repo, whose recorded set still matches the index.
+    tok="$(find_stage_token 2>/dev/null || true)"
+
+    if [ -z "$tok" ]; then
+        deny "'git commit' must be preceded by 'git add <files>' in the same shell command." \
+            "Why: a bare 'git commit' ships whatever was staged on a prior turn — possibly by another agent. Combine stage + commit:
    git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@"
-        fi
     fi
+
+    tok_repo="$(sed -n 's/^repo=//p' "$tok" 2>/dev/null | head -1)"
+    if [ "$tok_repo" != "$(repo_ident)" ]; then
+        rm -f "$tok" 2>/dev/null || true
+        deny "the pending 'git add' was for a different repository." \
+            "Why: a stage token from another checkout must never authorise a commit here. Stage and commit in the same repo:
+   git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@"
+    fi
+
+    # Everything after the '--' marker is the staged set as it was
+    # immediately after the add.
+    tok_files="$(sed -n '/^--$/,$p' "$tok" 2>/dev/null | tail -n +2)"
+    now_files="$(staged_set)"
+    if [ "$tok_files" != "$now_files" ]; then
+        deny "the staged file set changed between 'git add' and 'git commit'." \
+            "Why: something modified the index after you staged — typically a parallel agent adding its own files, which your commit would then ship. This is exactly the race the atomic stage+commit rule exists to stop.
+
+ Re-stage explicitly and commit in one command:
+   git add path/to/file1 path/to/file2 && git commit -m \"msg\"
+
+ Staged when you added:
+$(printf '%s' "$tok_files" | sed 's/^/   /')
+
+ Staged now:
+$(printf '%s' "$now_files" | sed 's/^/   /')" "$@"
+    fi
+
+    # Single use — a token must never authorise a second commit.
+    rm -f "$tok" 2>/dev/null || true
 fi
 
 # ─────────────────────────────────────────────────────────────────
