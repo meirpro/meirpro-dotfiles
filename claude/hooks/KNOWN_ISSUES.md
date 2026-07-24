@@ -1006,7 +1006,7 @@ kill — there is nothing to fix in the wrapper itself.
 
 ### Related files
 
-- `~/Documents/GitHub/claude_timings_wrapper/bin/claude-timed.mjs`
+- `~/git/claude_timings_wrapper/bin/claude-timed.mjs`
   — the wrapper Node entrypoint that EPERM trips on
 - `~/.claude/CLAUDE.md` → "macOS TCC daemon stuck in stale state"
   — the canonical writeup of the underlying bug
@@ -1174,12 +1174,12 @@ heuristic for "wall_unreliable" doesn't catch the discrepancy.
 
 ### Related files
 
-- `~/Documents/GitHub/meirpro-dotfiles/claude/hooks/session_wrapup.sh`
+- `~/git/meirpro-dotfiles/claude/hooks/session_wrapup.sh`
   — computes `wall_min` from session_file `end - start`
-- `~/Documents/GitHub/meirpro-dotfiles/claude/hooks/session_wrapup_skill.md`
+- `~/git/meirpro-dotfiles/claude/hooks/session_wrapup_skill.md`
   (or wherever the `/wrapup` skill text lives) — Step 5.5 needs
   to be widened per Mitigation 2
-- `~/Documents/GitHub/claude_timings_wrapper/bin/claude-timed.mjs`
+- `~/git/claude_timings_wrapper/bin/claude-timed.mjs`
   — emits the events claude-timed sums into the status line wall
 - `~/.claude/timings/.current-session` — pointer file that is
   itself unreliable under parallel-agent usage (see secondary

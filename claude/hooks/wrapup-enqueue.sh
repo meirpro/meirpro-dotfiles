@@ -18,7 +18,7 @@
 # Never blocks the hook event. Returns 0 unconditionally; the worker
 # is the authoritative path and any error here is logged + ignored.
 #
-# See: ~/Documents/GitHub/command-center/docs/superpowers/plans/2026-05-25-wrapup-stop-sessionend.md
+# See: ~/git/command-center/docs/superpowers/plans/2026-05-25-wrapup-stop-sessionend.md
 
 set -uo pipefail
 

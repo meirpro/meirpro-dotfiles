@@ -10,14 +10,14 @@ examples.)
 ## Creating a new global skill
 
 1. Author it directly at
-   `~/Documents/GitHub/meirpro-dotfiles/claude/skills/<name>/`
+   `~/git/meirpro-dotfiles/claude/skills/<name>/`
    (or if a tool like `init_skill.py` already created it under
    `~/.claude/skills/<name>/`, **move** it: `mv ~/.claude/skills/<name>
-   ~/Documents/GitHub/meirpro-dotfiles/claude/skills/<name>`).
+   ~/git/meirpro-dotfiles/claude/skills/<name>`).
 2. Symlink it back with an **absolute** target:
 
    ```bash
-   ln -s /Users/lightwing/Documents/GitHub/meirpro-dotfiles/claude/skills/<name> \
+   ln -s ~/git/meirpro-dotfiles/claude/skills/<name> \
          /Users/lightwing/.claude/skills/<name>
    ```
 

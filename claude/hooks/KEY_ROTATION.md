@@ -97,7 +97,7 @@ write replaces the entry from step 1; the script will then retry the
 Wrangler push. If the Wrangler push keeps failing, debug it standalone:
 
 ```bash
-cd ~/Documents/GitHub/command-center
+cd ~/git/command-center
 wrangler whoami     # must succeed
 wrangler secret list  # must show TRACK_KEY
 ```
@@ -143,7 +143,7 @@ equivalent five-line sequence:
 ```bash
 NEW_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
 security add-generic-password -a "$USER" -s claude-track-key -A -U -w "$NEW_KEY"
-( cd ~/Documents/GitHub/command-center && echo -n "$NEW_KEY" | wrangler secret put TRACK_KEY )
+( cd ~/git/command-center && echo -n "$NEW_KEY" | wrangler secret put TRACK_KEY )
 ~/.claude/bin/cc-call --timeout 10 GET /api/projects   # confirm 2xx
 unset NEW_KEY
 rm -f ~/.claude/track-key

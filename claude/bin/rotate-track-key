@@ -41,7 +41,7 @@ import time
 
 KEYCHAIN_SERVICE = "claude-track-key"
 LEGACY_KEY_FILE = os.path.expanduser("~/.claude/track-key")
-DEFAULT_CC_REPO = os.path.expanduser("~/Documents/GitHub/command-center")
+DEFAULT_CC_REPO = os.path.expanduser("~/git/command-center")
 WRANGLER_SECRET_NAME = "TRACK_KEY"
 VERIFY_PATH = "/api/projects"
 VERIFY_TIMEOUT_S = 60

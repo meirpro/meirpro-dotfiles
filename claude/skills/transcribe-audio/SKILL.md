@@ -15,7 +15,7 @@ The Read tool cannot open audio files at all; this skill is the working path.
 ## Quick Start
 
 ```bash
-PY=/Users/lightwing/Documents/GitHub/experiments/OmniVoice/.venv/bin/python3
+PY=$HOME/git/experiments/OmniVoice/.venv/bin/python3
 $PY ~/.claude/skills/transcribe-audio/scripts/transcribe_audio.py "/path/to/audio.opus"
 # Force a language (helps accented/multilingual speech):
 $PY ~/.claude/skills/transcribe-audio/scripts/transcribe_audio.py "/path/to/audio.opus" --language english

@@ -13,7 +13,7 @@
 #   2  unresolvable session id (literal ${CLAUDE_SESSION_ID}, no file, no transcript)
 #   3  prerequisite missing (claude CLI, jq, python3, session_wrapup.sh)
 #
-# See: ~/Documents/GitHub/command-center/docs/superpowers/plans/2026-05-25-wrapup-self-driving.md
+# See: ~/git/command-center/docs/superpowers/plans/2026-05-25-wrapup-self-driving.md
 
 set -uo pipefail
 

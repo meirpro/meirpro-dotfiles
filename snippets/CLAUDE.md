@@ -17,7 +17,7 @@ When asked to install a snippet into a target project, follow these exact steps.
 ### 1. `credit/MeirProCredit.jsx` — visible React footer credit
 
 ```bash
-cp ~/Documents/GitHub/meirpro-dotfiles/snippets/credit/MeirProCredit.jsx \
+cp ~/git/meirpro-dotfiles/snippets/credit/MeirProCredit.jsx \
    <target_project>/src/components/MeirProCredit.jsx
 ```
 

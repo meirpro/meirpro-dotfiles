@@ -43,7 +43,7 @@ If Tailwind is not configured, stop and tell the user — this component depends
 Copy the component to the project's components directory. Prefer the existing convention — look at where other components live (`components/`, `src/components/`, `app/components/`, `app/_components/`).
 
 ```bash
-cp ~/Documents/GitHub/meirpro-dotfiles/snippets/credit/MeirProCredit.jsx \
+cp ~/git/meirpro-dotfiles/snippets/credit/MeirProCredit.jsx \
    <target_components_dir>/MeirProCredit.jsx
 ```
 

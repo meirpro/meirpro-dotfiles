@@ -3,7 +3,7 @@
 # Usage:
 #   scan_git.sh <repo_path>                     # incremental (uses checkpoint)
 #   scan_git.sh <repo_path> --since=<date>      # full history from date
-#   scan_git.sh --all-tracked                   # walk all repos from ~/Documents/GitHub
+#   scan_git.sh --all-tracked                   # walk all repos from ~/git
 #   scan_git.sh --all-tracked --since=<date>    # full history on all tracked
 
 set -eu
@@ -170,7 +170,12 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$ALL_TRACKED" -eq 1 ]; then
-    for repo in /Users/lightwing/Documents/GitHub/*/; do
+    # Two levels: ~/git/<repo> for standalone repos, and ~/git/<client>/<repo>
+    # for grouped ones (sweetrobo/, futureino/, ruthknapp/ — adopted
+    # 2026-07-23). A single-level glob silently skipped every grouped repo.
+    # Group directories themselves have no .git and fall through the check;
+    # an unmatched glob stays literal and fails it too, so no nullglob needed.
+    for repo in "$HOME"/git/*/ "$HOME"/git/*/*/; do
         repo_path="${repo%/}"
         if [ -d "$repo_path/.git" ]; then
             scan_repo "$repo_path" "$SINCE_ARG"
