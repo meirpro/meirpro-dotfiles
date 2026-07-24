@@ -96,19 +96,33 @@ prompt_git() {
         s+="⇣${behind}"
     fi
 
-    # Parse file statuses from remaining lines
-    local lines="${status_output#*$'\n'}"
-    if [ "$lines" != "$status_output" ]; then
-        case "$lines" in
-            *[MADRC][\ ]*) s+='+' ;;  # staged
-        esac
-        case "$lines" in
-            *\ [MD]*) s+='!' ;;  # unstaged
-        esac
-        case "$lines" in
-            *\?\?*) s+='?' ;;  # untracked
-        esac
-    fi
+    # Parse file statuses from the remaining lines.
+    #
+    # Read the two porcelain status COLUMNS per line rather than pattern
+    # matching the whole blob. The old form was:
+    #     case "$lines" in *[MADRC][\ ]*) s+='+' ;; esac
+    # which matches anywhere in the text — including inside a filename.
+    # A file named "MD file.txt", untracked, reported [+?]: the "MD " in
+    # its NAME satisfied the staged pattern. Any name with M/A/D/R/C
+    # followed by a space triggered it ("README notes.md", "Draft 2.txt").
+    # Columns can't be spoofed by a filename.
+    local line x y staged=0 unstaged=0 untracked=0
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        case "$line" in '## '*) continue ;; esac
+        x="${line:0:1}"
+        y="${line:1:1}"
+        if [ "$x" = '?' ]; then
+            untracked=1
+            continue
+        fi
+        [ "$x" != ' ' ] && staged=1
+        [ "$y" != ' ' ] && unstaged=1
+    done <<< "$status_output"
+
+    [ "$staged" = 1 ]    && s+='+'
+    [ "$unstaged" = 1 ]  && s+='!'
+    [ "$untracked" = 1 ] && s+='?'
 
     # Stash check (no way to get from git status)
     if git rev-parse --verify refs/stash &>/dev/null 2>&1; then
