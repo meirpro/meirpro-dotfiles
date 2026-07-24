@@ -42,3 +42,9 @@ export BASH_SILENCE_DEPRECATION_WARNING=1;
 # `mysqldump`, `mysqladmin`, etc. resolve. Guarded, so it's a no-op on any
 # machine that doesn't have mysql-client installed.
 [ -d /opt/homebrew/opt/mysql-client/bin ] && export PATH="/opt/homebrew/opt/mysql-client/bin:${PATH}";
+
+# STM32CubeProgrammer CLI (STM32_PRG_PATH is what ST's tooling and Makefiles
+# look for). Guarded, so it's a no-op until the app is installed — it's a
+# manual download from st.com, not a cask.
+[ -d "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin" ] && \
+	export STM32_PRG_PATH="/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin";
