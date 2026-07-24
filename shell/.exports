@@ -36,3 +36,9 @@ export GPG_TTY=$(tty);
 
 # Hide the “default interactive shell is now zsh” warning on macOS.
 export BASH_SILENCE_DEPRECATION_WARNING=1;
+
+# mysql-client is keg-only — Homebrew won't symlink it into PATH so it can't
+# clash with a full `mysql` server install. Add its bin so `mysql`,
+# `mysqldump`, `mysqladmin`, etc. resolve. Guarded, so it's a no-op on any
+# machine that doesn't have mysql-client installed.
+[ -d /opt/homebrew/opt/mysql-client/bin ] && export PATH="/opt/homebrew/opt/mysql-client/bin:${PATH}";
