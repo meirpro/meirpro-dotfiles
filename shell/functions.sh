@@ -223,7 +223,7 @@ function cld() {
 		# If exactly one match found, use it
 		if [[ ${#matches[@]} -eq 1 ]]; then
 			shift  # Remove the partial ID from arguments
-			"$cmd" --resume "${matches[0]}" "$@"
+			"$cmd" --resume "${matches[@]:0:1}" "$@"  # [@]:0:1 = first elem in BOTH bash(0-idx) and zsh(1-idx); ${matches[0]} is empty in zsh
 		elif [[ ${#matches[@]} -gt 1 ]]; then
 			echo "Multiple sessions found matching '$partial_id':"
 			printf '  %s\n' "${matches[@]}"

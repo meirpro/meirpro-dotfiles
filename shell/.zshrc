@@ -1,3 +1,12 @@
+# zsh options. bash set these via `shopt` in .bash_profile.template /
+# bash_options; these are the zsh equivalents (bash's shopt names do
+# nothing in zsh). AUTO_CD is why `../photobooth-ai` or a bare dir name
+# changes directory without typing `cd`.
+setopt AUTO_CD              # bare path / `../foo` → cd (bash: shopt -s autocd)
+setopt EXTENDED_GLOB        # advanced globbing (bash: globstar; zsh ** is builtin)
+setopt NO_CASE_GLOB         # case-insensitive globbing (bash: nocaseglob)
+setopt APPEND_HISTORY HIST_IGNORE_DUPS   # don't clobber history (bash: histappend)
+
 alias rm='safe-rm'
 export PATH=~/.npm-global/bin:$PATH
 
