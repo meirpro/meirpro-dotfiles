@@ -55,15 +55,26 @@ check_shell_config() {
     fi
 }
 
-# Ask what to install
+# Ask what to install. Guard the prompt with `[ -t 0 ]`: `read` returns
+# non-zero on EOF when stdin isn't a TTY (piped, CI, run from an agent),
+# and `set -e` would then abort before the script does anything. Default
+# to "3" (both) non-interactively, overridable with INSTALL_CHOICE=N.
+# (Fix originally proposed in the stale fork PR #1; extracted here.)
 echo -e "${BLUE}What would you like to install?${NC}"
 echo "  1) Claude Code configuration only"
 echo "  2) Shell configuration only (dotfiles, aliases, functions, git, vim, tools)"
 echo "  3) Both (recommended)"
 echo
-read -p "Select option (1-3): " -n 1 -r
-echo
-INSTALL_CHOICE=$REPLY
+if [ -z "${INSTALL_CHOICE:-}" ]; then
+    if [ -t 0 ]; then
+        read -p "Select option (1-3): " -n 1 -r
+        echo
+        INSTALL_CHOICE=$REPLY
+    else
+        INSTALL_CHOICE=3
+        echo "  (non-interactive: defaulting to 3 — both)"
+    fi
+fi
 
 # Validate choice
 if [[ ! $INSTALL_CHOICE =~ ^[1-3]$ ]]; then
@@ -99,13 +110,18 @@ if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
     echo -e "${GREEN}✓ Backup created${NC}"
     echo
 
-    # Ask about audio notifications
+    # Ask about audio notifications (non-interactive → skip; see note above)
     echo -e "${BLUE}Install audio notifications?${NC} (plays sounds on task completion)"
     echo "  Requires: Python 3"
     echo "  Audio files: ~2MB"
     echo
-    read -p "Install audio? (y/N): " -n 1 -r audio_choice
-    echo
+    if [ -t 0 ]; then
+        read -p "Install audio? (y/N): " -n 1 -r audio_choice
+        echo
+    else
+        audio_choice="n"
+        echo "  (non-interactive: skipping audio)"
+    fi
     echo
 
     # Create symlinks for directories
@@ -167,11 +183,15 @@ if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
     echo -e "${GREEN}✓ Scripts are executable${NC}"
     echo
 
-    # Star the repo
+    # Star the repo (non-interactive → skip; see note above)
     echo -e "${BLUE}Star the meirpro-dotfiles repo on GitHub?${NC}"
     echo "  (Helps others on the team discover these tools)"
-    read -p "Star repo? (y/N): " -n 1 -r star_choice
-    echo
+    if [ -t 0 ]; then
+        read -p "Star repo? (y/N): " -n 1 -r star_choice
+        echo
+    else
+        star_choice="n"
+    fi
     if [[ "$star_choice" =~ ^[Yy]$ ]]; then
         if command -v gh &>/dev/null; then
             if gh api user/starred/meirpro/meirpro-dotfiles -X PUT 2>/dev/null; then
