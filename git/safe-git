@@ -149,8 +149,20 @@ done
 # Only interesting subcommands: add, commit, reset, checkout, switch.
 # Everything else passes through.
 case "$SUBCMD" in
-    add|commit|reset|checkout|switch) ;;
+    add|commit|reset|checkout|switch|stash) ;;
     *) exec "$REAL_GIT" "$@" ;;
+esac
+
+# Exemption: Claude Code's plugin cache. The installer clones each
+# plugin's marketplace repo under ~/.claude/plugins/ and pins it with
+# `git checkout <sha>`. Those clones are machine-managed caches, not
+# shared working checkouts — no session, agent, or human rides their
+# HEAD — so none of the rules below apply there (blocked a plugin
+# install on 2026-07-24). Scoped by the repo's actual git-dir, so a
+# cwd trick can't extend it to a real checkout.
+PLUGIN_GITDIR="$("$REAL_GIT" rev-parse --absolute-git-dir 2>/dev/null || true)"
+case "$PLUGIN_GITDIR" in
+    "$HOME/.claude/plugins/"*) exec "$REAL_GIT" "$@" ;;
 esac
 
 # Which env var can bypass the rule that applies to this subcommand.
@@ -433,11 +445,70 @@ $FILES
 $EXTRA
 
  Resolve first:
-   1. If the WIP is yours and unneeded:    git stash -u   (then 'git stash drop' later — NOT 'git stash pop' if you've already reset)
-   2. If you want it to survive:           git stash -u && git reset --hard <ref> && git stash pop
+   1. If the WIP is yours:   stash ONLY your files by path — git stash push -- <your paths>
+      (whole-tree 'git stash -u' is itself refused: it sweeps other sessions' WIP)
+   2. Need a clean tree to work in? Use a worktree instead of resetting:
+        git worktree add .claude/worktrees/<name> <ref>
    3. If you don't know whose WIP it is:   stop and ask the user — another session may be active." "$@"
         fi
     fi
+fi
+
+# ─────────────────────────────────────────────────────────────────
+# Rule 8: subcommand == stash (whole-tree forms)
+# ─────────────────────────────────────────────────────────────────
+# A bare `git stash` (or `stash -u` / pathless `stash push`) sweeps up EVERY
+# dirty file in the shared checkout — including a parallel session's WIP —
+# and the later `pop` collides with whatever changed meanwhile (shipped
+# 2026-07-26: an agent's stash/pop in the shared hayom checkout wiped its own
+# edits and nearly a sibling's). Allowed without bypass:
+#   git stash list / show                       (read-only)
+#   git stash push [-m msg] -- <explicit paths> (stash only YOUR files)
+#   git stash pop / apply / drop                (restores only what was pushed)
+# Refused: bare `git stash`, `stash -u/-a/--include-untracked/--all`, and
+# `stash push` with no pathspec. Need a clean HEAD to test against? Use a
+# worktree: git worktree add .claude/worktrees/<name> HEAD
+if [ "$SUBCMD" = "stash" ]; then
+    STASH_OP=""
+    HAS_PATHSPEC=0
+    SEEN_DASHDASH=0
+    j=1
+    while [ $j -le $# ]; do
+        eval "a=\${$j}"
+        case "$a" in
+            stash) ;;
+            --) SEEN_DASHDASH=1 ;;
+            -u|--include-untracked|-a|--all)
+                deny "'git stash $a' sweeps untracked files across the SHARED checkout." \
+                    "Why: it grabs every session's in-flight work, not just yours. Stash only your own files by explicit path:
+   git stash push -m \"why\" -- path/to/your/file1 path/to/your/file2
+ Or test against a clean HEAD in a worktree instead:
+   git worktree add .claude/worktrees/clean-check HEAD" "$@" ;;
+            -*) ;;
+            *)
+                if [ -z "$STASH_OP" ] && [ "$SEEN_DASHDASH" -eq 0 ]; then
+                    STASH_OP="$a"
+                else
+                    HAS_PATHSPEC=1
+                fi ;;
+        esac
+        j=$((j + 1))
+    done
+    case "${STASH_OP:-push}" in
+        list|show|pop|apply|drop|branch) exec "$REAL_GIT" "$@" ;;
+        push|save|"")
+            if [ "$HAS_PATHSPEC" -eq 1 ]; then
+                exec "$REAL_GIT" "$@"
+            fi
+            deny "whole-tree 'git stash' is forbidden — the checkout is SHARED." \
+                "Why: a pathless stash sweeps EVERY dirty file, including parallel sessions' work-in-progress, and the later pop collides with whatever changed meanwhile (this shipped 2026-07-26 in the hayom checkout).
+
+ Do one of these instead:
+   1. Stash only YOUR files:  git stash push -m \"why\" -- <your paths>
+   2. Need a pristine HEAD to compare against? Use a worktree:
+        git worktree add .claude/worktrees/clean-check HEAD" "$@" ;;
+        *) exec "$REAL_GIT" "$@" ;;
+    esac
 fi
 
 # ─────────────────────────────────────────────────────────────────
