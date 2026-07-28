@@ -1,4 +1,28 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "cleanupPeriodDays": 365,
+  "env": {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "0"
+  },
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.local)",
+      "Read(**/.env.development)",
+      "Read(**/.env.production)",
+      "Read(**/.env.staging)",
+      "Read(**/.secret*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/*.crt)",
+      "Read(**/*.cert)",
+      "Read(**/secrets/**)",
+      "Read(**/node_modules/**)",
+      "Read(**/credentials/**)"
+    ],
+    "defaultMode": "default"
+  },
   "hooks": {
     "Notification": [
       {
@@ -34,31 +58,31 @@
         ]
       },
       {
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/ts_lint.sh"
           }
-        ],
-        "matcher": "Write|Edit|MultiEdit"
+        ]
       },
       {
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/ts_check.sh"
           }
-        ],
-        "matcher": "Write|Edit|MultiEdit"
+        ]
       },
       {
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/format_code.sh"
           }
-        ],
-        "matcher": "Write|Edit|MultiEdit"
+        ]
       }
     ],
     "PreCompact": [
@@ -82,13 +106,13 @@
         ]
       },
       {
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/log_bash.sh"
           }
-        ],
-        "matcher": "Bash"
+        ]
       },
       {
         "hooks": [
@@ -155,6 +179,14 @@
             "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/git/claude_timings_wrapper/hooks/claude-timing-stop.sh"
+          }
+        ]
       }
     ],
     "StopFailure": [
@@ -195,8 +227,19 @@
             "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/git/claude_timings_wrapper/hooks/claude-timing-start.sh"
+          }
+        ]
       }
     ]
+  },
+  "worktree": {
+    "baseRef": "fresh"
   },
   "enableArtifact": false,
   "statusLine": {
@@ -240,40 +283,13 @@
     "browser-use@claude-plugins-official": false,
     "claude-security@claude-plugins-official": false
   },
+  "effortLevel": "medium",
   "askUserQuestionTimeout": "5m",
   "tui": "default",
   "theme": "auto",
   "editorMode": "normal",
   "autoCompactEnabled": true,
   "remoteControlAtStartup": false,
-  "effortLevel": "medium",
-  "cleanupPeriodDays": 365,
-  "includeCoAuthoredBy": false,
-  "permissions": {
-    "deny": [
-      "Read(**/.env)",
-      "Read(**/.env.local)",
-      "Read(**/.env.development)",
-      "Read(**/.env.production)",
-      "Read(**/.env.staging)",
-      "Read(**/.secret*)",
-      "Read(**/*.pem)",
-      "Read(**/*.key)",
-      "Read(**/*.crt)",
-      "Read(**/*.cert)",
-      "Read(**/secrets/**)",
-      "Read(**/node_modules/**)",
-      "Read(**/credentials/**)"
-    ],
-    "defaultMode": "default"
-  },
-  "worktree": {
-    "baseRef": "fresh"
-  },
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": true,
-  "env": {
-    "CLAUDE_CODE_ENABLE_TELEMETRY": "0"
-  },
-  "$schema": "https://json.schemastore.org/claude-code-settings.json"
+  "voiceEnabled": true
 }
