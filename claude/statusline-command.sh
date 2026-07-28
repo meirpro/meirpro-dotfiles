@@ -3,6 +3,18 @@
 # Read JSON input from stdin
 input=$(cat)
 
+# ── Vibe Island: rate_limits bridge (managed, do not remove) ───
+# Injected by the Vibe Island installer into ~/.claude/statusline-command.sh on
+# 2026-07-23. Carried into the repo copy 2026-07-27 so the file can go back to
+# being a symlink without the app losing its usage data. If Vibe Island is
+# uninstalled, delete this block.
+_vi_usage_enabled=$(/usr/bin/defaults read app.vibeisland.macos showUsage 2>/dev/null || echo 0)
+if [ "$_vi_usage_enabled" = "1" ] || [ "$_vi_usage_enabled" = "true" ] || [ "$_vi_usage_enabled" = "TRUE" ]; then
+  _rl=$(echo "$input" | jq -c '.rate_limits // empty' 2>/dev/null)
+  [ -n "$_rl" ] && mkdir -p "$(dirname "/Users/meirpro/.vibe-island/cache/rl.json")" 2>/dev/null && printf '%s\n' "$_rl" > "/Users/meirpro/.vibe-island/cache/rl.json"
+fi
+# ── End Vibe Island bridge ─────────────────────────────
+
 # === Telemetry write: dump live cost/tokens/rate-limits to session JSON file ===
 # Best-effort, runs in background subshell so statusline rendering never blocks.
 {
