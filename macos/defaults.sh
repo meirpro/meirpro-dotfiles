@@ -73,11 +73,20 @@ echo -e "${BLUE}Menu bar${NC}"
 # ~/Library/Preferences/.GlobalPreferences.plist, which the menu bar never
 # reads, and the setting silently does nothing.
 #
-# 0 is the minimum — maximum density, icons nearly touching. If the click
-# highlight feels cramped against the icon, raise padding to 4-6 and leave
-# spacing at 0.
-set_default ch:-globalDomain NSStatusItemSpacing -int 0
-set_default ch:-globalDomain NSStatusItemSelectionPadding -int 0
+# Settled on spacing 1 / padding 4 after trying 3/3 then 0/4. The two knobs
+# are not interchangeable: spacing is dead air between items and buys the least
+# per point, so it stays at 1 (0 is legal but leaves zero seam between
+# adjacent icons). Padding is the click-highlight box, and at 0 the box sits
+# flush against the glyph and looks broken — 4 is the smallest value that still
+# reads as a box around the icon. Cramped but never overlapping.
+#
+# These keys only affect the RIGHT side of the menu bar (NSStatusItem icons).
+# The left side — the app's own File/Edit/View menus — is drawn by NSMenu, and
+# there is NO equivalent default for it in any app or system-wide. The spacing
+# between menu titles is computed inside AppKit's menu bar layout and was never
+# exposed as a preference. Don't go looking again: nothing here compresses it.
+set_default ch:-globalDomain NSStatusItemSpacing -int 1
+set_default ch:-globalDomain NSStatusItemSelectionPadding -int 4
 
 # Menu bar clock: time only, no date, no day of week.
 # Stock: ShowDate 0, ShowDayOfWeek true.
@@ -123,8 +132,14 @@ echo -e "${BLUE}Keyboard${NC}"
 # Stock: KeyRepeat 6, InitialKeyRepeat 25. Lower is faster; 2/15 is the
 # common developer setting and 1/10 is faster than System Settings can go.
 # This is the change you feel most — every held arrow key, every backspace.
+#
+# InitialKeyRepeat is 20, not 15: the two knobs pull in opposite directions.
+# A fast repeat rate (2) with a short delay (15) means a deliberate single
+# keypress that lingers a fraction too long fires 3-4 characters. Backing the
+# delay off to 20 keeps the fast repeat once it starts, while restoring enough
+# dead time that normal typing doesn't trip it.
 set_default -globalDomain KeyRepeat -int 2
-set_default -globalDomain InitialKeyRepeat -int 15
+set_default -globalDomain InitialKeyRepeat -int 20
 
 # Stock: true. When true, holding a key shows the accent-picker popup (é è ê)
 # instead of repeating the character — actively hostile in vim, VS Code, or
@@ -208,16 +223,23 @@ echo
 # ============================================================================
 echo -e "${BLUE}Trackpad & desktop${NC}"
 
-# Three-finger drag. Stock: off. Move a window or select text by dragging
-# three fingers, instead of physically clicking-and-holding. Set on both the
-# built-in (AppleMultitouchTrackpad) and Bluetooth trackpad domains.
+# Three-finger drag. Stock: off. TRIED AND REJECTED 2026-07-27 — kept here as
+# an explicit false so it doesn't get "helpfully" re-added later.
 #
-# May need a logout — this is an Accessibility pointer setting, and macOS
-# sometimes only re-reads it at login. If it hasn't taken after logging back
-# in, toggle it once in System Settings -> Accessibility -> Pointer Control ->
-# Trackpad Options -> Use trackpad for dragging (three-finger drag).
-set_default com.apple.AppleMultitouchTrackpad TrackpadThreeFingerDrag -bool true
-set_default com.apple.driver.AppleBluetoothMultitouch.trackpad TrackpadThreeFingerDrag -bool true
+# The pitch is that you move windows and select text by dragging three fingers
+# instead of clicking-and-holding. The cost is that it steals the three-finger
+# swipe, which is the default gesture for Mission Control and moving between
+# full-screen spaces. macOS demotes those to four fingers, so every space
+# switch you already had in muscle memory silently stops working, and any
+# three-finger rest on the pad starts dragging whatever is under the cursor.
+# Not worth it for the occasional window move.
+#
+# Set on both the built-in (AppleMultitouchTrackpad) and Bluetooth trackpad
+# domains. If the gesture somehow persists, it's an Accessibility pointer
+# setting that macOS may only re-read at login — log out, or toggle it once at
+# System Settings -> Accessibility -> Pointer Control -> Trackpad Options.
+set_default com.apple.AppleMultitouchTrackpad TrackpadThreeFingerDrag -bool false
+set_default com.apple.driver.AppleBluetoothMultitouch.trackpad TrackpadThreeFingerDrag -bool false
 
 # Stock (Sonoma+): true. Clicking any exposed patch of wallpaper sweeps every
 # window aside to reveal the desktop. It fires constantly by accident on a
@@ -285,6 +307,19 @@ echo -e "${BLUE}Screenshots${NC}"
 # Desktop accumulates "Screenshot 2026-07-23 at 14.02.11.png" forever; a
 # dedicated folder keeps it clean. The window drop shadow adds ~60px of
 # transparent margin on every windowed capture, which wrecks them for docs.
+#
+# NOT THE WHOLE STORY. This only governs macOS's built-in screenshot. The
+# "Keyboard shortcuts" section below hands ⌘⇧3/4/5 to CleanShot X, and
+# CleanShot has its own save location that ignores this key entirely — so in
+# practice these settings apply to almost nothing. CleanShot defaults to the
+# Desktop, which looks exactly like this setting silently failing.
+#
+# CleanShot's folder CANNOT be scripted: it's stored as a security-scoped
+# bookmark, not a path string (there is no save-path key in the
+# pl.maketheweb.cleanshotx domain at all). Set it once by hand:
+#   CleanShot menu bar icon -> Settings -> General -> "Save screenshots to"
+# Verified working 2026-07-27. Keep the keys below anyway — they're the
+# correct fallback for when CleanShot isn't running or isn't installed.
 SCREENSHOT_DIR="$HOME/Pictures/Screenshots"
 if $REVERT; then
     defaults delete com.apple.screencapture location 2>/dev/null || true
