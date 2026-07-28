@@ -21,7 +21,23 @@
 	# left .DS_Store, *.pyc and node_modules/ showing up as untracked in
 	# every repo (verified 2026-07-23).
 	excludesfile = ~/.gitignore
-	attributesfile = ~/.gitattributes
+
+	# attributesfile points straight at the repo file rather than at the
+	# ~/.gitattributes symlink install.sh used to create. Git 2.45.1
+	# hardened the attributes stack against symlinked config files (the
+	# CVE-2024-32002 family) and now opens this path with O_NOFOLLOW, so a
+	# symlinked ~/.gitattributes fails with the very misleading
+	#   warning: unable to access '/Users/you/.gitattributes':
+	#   Too many levels of symbolic links
+	# on every diff of a file under $HOME. Nothing is looping — git simply
+	# refuses to follow the one link. (Observed on git 2.50.1, 2026-07-27.)
+	#
+	# excludesfile above is NOT affected: the excludes stack was not
+	# hardened the same way, so that symlink still resolves fine.
+	#
+	# Pointing at the repo file avoids both a symlink and a copy, so there
+	# is still exactly one source of truth and no drift.
+	attributesfile = ~/git/meirpro-dotfiles/git/.gitattributes
 
 	# Flag whitespace problems in `git diff`. Only ever COLOURS the diff
 	# and warns on `git apply`; never edits your files.

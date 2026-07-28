@@ -254,7 +254,20 @@ if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
     # Create symlinks for git configs
     echo -e "${YELLOW}Creating symlinks for git configuration...${NC}"
     create_symlink "$REPO_DIR/git/.gitignore_global" "$HOME/.gitignore" ".gitignore (global)"
-    create_symlink "$REPO_DIR/git/.gitattributes" "$HOME/.gitattributes" ".gitattributes"
+
+    # NO symlink for .gitattributes — deliberately. Git 2.45.1 hardened the
+    # attributes stack against symlinked config files, so a symlinked
+    # ~/.gitattributes makes every diff of a file under $HOME print
+    #   warning: unable to access '~/.gitattributes':
+    #   Too many levels of symbolic links
+    # even though nothing is looping. shared.gitconfig now points
+    # core.attributesfile straight at "$REPO_DIR/git/.gitattributes"
+    # instead, so no file in $HOME is needed at all. Removing a stale one
+    # left by an earlier install; see git/shared.gitconfig for the detail.
+    if [ -L "$HOME/.gitattributes" ]; then
+        rm "$HOME/.gitattributes"
+        echo -e "${GREEN}  ✓ removed stale ~/.gitattributes symlink (see shared.gitconfig)${NC}"
+    fi
 
     # safe-git wrapper at ~/bin/git intercepts dangerous git invocations
     # (git add -A, git add ., split stage/commit, bare commit -a) before
