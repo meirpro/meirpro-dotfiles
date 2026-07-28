@@ -32,3 +32,4 @@ export PATH="$HOME/bin:$PATH"
 # text-match the parent shell's argv. Those rules now verify index state
 # via a stage token instead (2026-07-23), so nothing reads the capture
 # file. Sourcing it would only add a DEBUG trap / preexec hook for no gain.
+export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
