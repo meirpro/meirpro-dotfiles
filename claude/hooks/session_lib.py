@@ -104,7 +104,17 @@ def resolve_session_file(session_id, create_if_missing=False):
             continue
         with open(uuid_path, "w") as f:
             json.dump(migrated, f, indent=2)
-        if os.path.abspath(path) != os.path.abspath(uuid_path):
+        # Delete the source ONLY if it is one of OUR old-format records.
+        # Claude Code itself now writes PID-named files here (camelCase
+        # "sessionId", plus "pid"/"peerProtocol"/"entrypoint") and OWNS them:
+        # /resume, session naming and the session list all read them. We copy
+        # their fields but must never remove them — deleting one kills the
+        # live session's registry entry. Almost-was-shipped 2026-07-28: this
+        # unconditional remove would have deleted the running session's file
+        # the first time the heartbeat fired. Our records are the only ones
+        # with snake_case "session_id"; that's the ownership test.
+        is_ours = "session_id" in data and "peerProtocol" not in data and "pid" not in data
+        if is_ours and os.path.abspath(path) != os.path.abspath(uuid_path):
             try:
                 os.remove(path)
             except OSError:
