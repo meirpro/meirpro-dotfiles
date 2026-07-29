@@ -23,6 +23,7 @@
     ],
     "defaultMode": "default"
   },
+  "model": "claude-fable-5[1m]",
   "hooks": {
     "Notification": [
       {
@@ -141,6 +142,14 @@
             "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/wrapup-enqueue.sh"
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -169,6 +178,14 @@
             "command": "~/.claude/hooks/cbm-session-reminder"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/session_tracker.sh"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -185,6 +202,22 @@
           {
             "type": "command",
             "command": "~/git/claude_timings_wrapper/hooks/claude-timing-stop.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/session_heartbeat.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/wrapup-enqueue.sh"
           }
         ]
       }
@@ -261,7 +294,7 @@
     "explanatory-output-style@claude-plugins-official": false,
     "playground@claude-plugins-official": false,
     "hookify@claude-plugins-official": false,
-    "sentry@claude-plugins-official": false,
+    "sentry@claude-plugins-official": true,
     "firecrawl@claude-plugins-official": false,
     "cloudflare@claude-plugins-official": false,
     "session-report@claude-plugins-official": false,
@@ -275,7 +308,7 @@
     "resend@claude-plugins-official": false,
     "aws-amplify@claude-plugins-official": false,
     "hyperframes@claude-plugins-official": false,
-    "sentry-cli@claude-plugins-official": false,
+    "sentry-cli@claude-plugins-official": true,
     "aws-data-analytics@claude-plugins-official": false,
     "mapbox@claude-plugins-official": false,
     "aws-startup-advisor@claude-plugins-official": false,
@@ -286,6 +319,7 @@
   "effortLevel": "medium",
   "askUserQuestionTimeout": "5m",
   "tui": "default",
+  "skipWorkflowUsageWarning": true,
   "theme": "auto",
   "editorMode": "normal",
   "autoCompactEnabled": true,
