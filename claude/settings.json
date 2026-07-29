@@ -314,7 +314,16 @@
     "aws-startup-advisor@claude-plugins-official": false,
     "save-to-spotify@claude-plugins-official": false,
     "browser-use@claude-plugins-official": false,
-    "claude-security@claude-plugins-official": false
+    "claude-security@claude-plugins-official": false,
+    "ui-ux-pro-max@ui-ux-pro-max-skill": false
+  },
+  "extraKnownMarketplaces": {
+    "ui-ux-pro-max-skill": {
+      "source": {
+        "source": "github",
+        "repo": "nextlevelbuilder/ui-ux-pro-max-skill"
+      }
+    }
   },
   "effortLevel": "medium",
   "askUserQuestionTimeout": "5m",
