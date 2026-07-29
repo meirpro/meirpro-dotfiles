@@ -44,9 +44,21 @@
 #      ship/* branches on the shared checkout while other agents were
 #      working). File restores (`git checkout -- <path>`,
 #      `git checkout <ref> -- <path>`) and `git restore` stay allowed;
-#      `git worktree add` stays allowed (the sanctioned isolation).
+#      `git worktree add` stays allowed (the sanctioned isolation),
+#      but only inside `.claude/worktrees/` — see rule 9.
 #      Bypass — THE explicit-permission mechanism — is
 #      `GIT_UNSAFE_BRANCH=1`, logged like the staging bypass.
+#   9. `git worktree add <path>` outside `.claude/worktrees/` —
+#      refused. Worktrees are scratch isolation, not projects: they
+#      belong inside the repo they came from, where one gitignore
+#      rule hides them and `git worktree remove` is the obvious
+#      cleanup. A sibling directory next to the repo reads like a
+#      separate checkout, survives long past its branch, and gets
+#      committed into the parent by accident (2026-07-29: an agent
+#      created `perfume-machine-backend-integration/` beside its repo
+#      and it was mistaken for a second project). Relative paths are
+#      resolved against the cwd before the check, so `../foo` can't
+#      sneak out. Bypass: `GIT_UNSAFE_BRANCH=1`.
 #
 # Bypass: prefix the command with `GIT_UNSAFE_STAGE=1` to disable the
 # staging rules (1-5), or `GIT_UNSAFE_BRANCH=1` to allow one
@@ -149,7 +161,7 @@ done
 # Only interesting subcommands: add, commit, reset, checkout, switch.
 # Everything else passes through.
 case "$SUBCMD" in
-    add|commit|reset|checkout|switch|stash) ;;
+    add|commit|reset|checkout|switch|stash|worktree) ;;
     *) exec "$REAL_GIT" "$@" ;;
 esac
 
@@ -170,8 +182,8 @@ esac
 # past rule 7, and GIT_UNSAFE_BRANCH must not smuggle an `add -A`
 # past rules 1-5 — each bypass unlocks exactly its own rule family.
 case "$SUBCMD" in
-    checkout|switch) BYPASS_VAR="GIT_UNSAFE_BRANCH" ;;
-    *)               BYPASS_VAR="GIT_UNSAFE_STAGE" ;;
+    checkout|switch|worktree) BYPASS_VAR="GIT_UNSAFE_BRANCH" ;;
+    *)                        BYPASS_VAR="GIT_UNSAFE_STAGE" ;;
 esac
 
 # Bypass — log the exception, then exec the real git directly.
@@ -551,6 +563,73 @@ if [ "$SUBCMD" = "checkout" ] || [ "$SUBCMD" = "switch" ]; then
    3. Restoring a FILE (not switching)?  git checkout -- <path>   or   git restore <path>
    4. The user explicitly approved a branch move? Use the logged bypass:
         GIT_UNSAFE_BRANCH=1 git $(printf '%q ' "$@" | sed 's/ $//')" "$@"
+fi
+
+# ─────────────────────────────────────────────────────────────────
+# Rule 9: subcommand == worktree add (location must be in-repo)
+# ─────────────────────────────────────────────────────────────────
+#
+# Only `add` places a directory; list/remove/prune/move/lock are fine.
+# The path is the first non-flag operand after `add`; flags that take
+# a value (-b/-B) consume the next argument, so skip it.
+if [ "$SUBCMD" = "worktree" ]; then
+    wt_action=""; wt_path=""; skip_next=0; seen_add=0
+    for a in "$@"; do
+        if [ "$skip_next" = "1" ]; then skip_next=0; continue; fi
+        case "$a" in
+            worktree) continue ;;
+            -b|-B) skip_next=1; continue ;;
+            --reason) skip_next=1; continue ;;
+            -*) continue ;;
+            *)
+                if [ -z "$wt_action" ]; then wt_action="$a"; [ "$a" = "add" ] && seen_add=1; continue; fi
+                if [ "$seen_add" = "1" ] && [ -z "$wt_path" ]; then wt_path="$a"; fi
+                ;;
+        esac
+    done
+
+    if [ "$wt_action" = "add" ] && [ -n "$wt_path" ]; then
+        # Resolve against cwd so a relative path is comparable. Done
+        # TEXTUALLY on purpose: the target does not exist yet, so any
+        # filesystem-based normalisation (realpath, `cd`) collapses it to
+        # garbage — an earlier version resolved `.claude/worktrees/ok` to
+        # `/ok` and refused the one path it was meant to allow.
+        case "$wt_path" in
+            /*) abs_wt="$wt_path" ;;
+            *)  abs_wt="$(pwd)/$wt_path" ;;
+        esac
+        # `..` can't be normalised without touching the disk, so refuse it
+        # outright rather than prefix-matching a path that may escape.
+        case "/$abs_wt/" in
+            */../*)
+                deny "'git worktree add' path contains '..' — use a plain path under .claude/worktrees/." \
+                    "Why: '..' can escape the repo, and the target doesn't exist yet so it can't be safely normalised.
+
+ Do this instead:
+   git worktree add .claude/worktrees/<name> -b <branch>" "$@"
+                ;;
+        esac
+        toplevel="$("$REAL_GIT" rev-parse --show-toplevel 2>/dev/null || true)"
+        allowed="${toplevel:-/nonexistent}/.claude/worktrees"
+
+        case "$abs_wt" in
+            "$allowed"/*) ;;   # inside the sanctioned directory — allow
+            *)
+                deny "'git worktree add' outside .claude/worktrees/ — worktrees belong inside the repo they came from." \
+                    "Why: a worktree beside the repo reads like a separate project, outlives its branch, and can be committed into the parent by accident (2026-07-29). In-repo, one gitignore rule hides it and cleanup is obvious.
+
+ Resolved path: $abs_wt
+ Required prefix: $allowed/
+
+ Do this instead:
+   git worktree add .claude/worktrees/<name> -b <branch>
+   git worktree remove .claude/worktrees/<name>     # when done
+
+ Genuinely need it elsewhere (e.g. a relative include path must match)?
+   GIT_UNSAFE_BRANCH=1 git $(printf '%q ' "$@" | sed 's/ $//')" "$@"
+                ;;
+        esac
+    fi
 fi
 
 # All checks passed — forward to the real git.
