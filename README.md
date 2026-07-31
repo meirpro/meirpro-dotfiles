@@ -46,8 +46,10 @@ meirpro-dotfiles/
 │   ├── .screenrc        # GNU Screen config
 │   ├── .wgetrc          # Wget defaults
 │   └── .curlrc          # Curl defaults
-├── macos/               # macOS system defaults
-│   └── defaults.sh      # `defaults write` settings (run manually)
+├── macos/               # macOS system config
+│   ├── defaults.sh      # `defaults write` settings (run manually)
+│   ├── inventory.sh     # Machine inventory snapshot
+│   └── launchd/         # LaunchAgents (DisplayLink no-indicator, disabled autostarts)
 ├── install.sh           # Installation script
 ├── README.md            # This file
 └── SETUP.md             # Machine-specific setup guide
@@ -141,12 +143,21 @@ What it sets, and why each one earns its place:
 - **Dock density** — `minimize-to-application` so minimised windows fold into the app icon instead of adding tiles, plus translucent icons for hidden apps.
 - **Compact sidebars** — `NSTableViewDefaultSizeMode 1`, same density goal as the menu bar.
 - **Finder** — path bar, status bar, expanded save/print dialogs, no `.DS_Store` on network shares or USB drives.
+- **Calculate all sizes** — list view shows real folder sizes instead of `--`, so the Size column is useful for the case you actually want it (finding what ate the disk). Buried inside a nested dict, so it needs `PlistBuddy` rather than `defaults write`, and `cfprefsd` has to be flushed first or the daemon rewrites the edit. Costs a few seconds of tree-walking in huge folders; noticeably slow over network shares.
 - **Screenshots** — into `~/Pictures/Screenshots`, window drop shadow off.
 - **Screenshot shortcuts released** — disables the built-in Cmd-Shift-3/4/5 so **CleanShot X** can bind them. Without this CleanShot silently loses to macOS, which is near-impossible to diagnose on a fresh machine.
 - **Terminals** — Terminal.app secure keyboard entry + no line marks; iTerm2 without the quit prompt. Both are set because the choice of terminal is still open.
 - **App annoyances** — Photos.app no longer launches when a phone is plugged in, Chrome two-finger swipe-back off (*on trial* — the script documents the one-line undo), TextEdit opens plain-text UTF-8.
 
 The script only manages keys it sets itself. Anything changed through System Settings (Dock size, Finder view style, tap-to-click, hot corners) is left untouched by both apply and `--revert`. Settings deliberately *not* changed — and the reasoning — are documented in a comment block at the bottom of the script.
+
+### macOS LaunchAgents
+
+`macos/launchd/` — startup agents that aren't Claude Code related, plus a record of third-party autostarts deliberately turned off. Full detail in [`macos/launchd/README.md`](macos/launchd/README.md).
+
+- **`pro.meir.displaylink`** — starts DisplayLink Manager under launchd rather than its own login item, so it restarts on crash and logs somewhere findable. `verify-displaylink.sh` health-checks it. Needed because the Anker DL7400 dock drives all three displays through DisplayLink. **A stopgap** — the M5 Pro drives 3 external displays natively over one Thunderbolt port, so a TB5 dock removes the need entirely; the README carries the teardown steps and dock options.
+- **Hiding the purple screen-capture indicator: does not work on macOS 26.** The popular `screen`/direct-exec workaround is documented there as a tested dead end, with why — macOS 26 resolves capture to the responsible process and falls back to the binary's code signature, so no launch path escapes attribution. Includes why you should never grant a terminal emulator Screen Recording to work around it.
+- **Logitech G HUB, disabled** — `com.logi.ghub` (tray agent) and `com.logi.ghub.updater` (a `KeepAlive` root daemon). Both booted out and `launchctl disable`d so a G HUB reinstall can't quietly reload them.
 
 ### Claude Code Customizations
 
