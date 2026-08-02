@@ -23,7 +23,7 @@
     ],
     "defaultMode": "default"
   },
-  "model": "claude-fable-5[1m]",
+  "model": "opus[1m]",
   "hooks": {
     "Notification": [
       {
@@ -280,23 +280,23 @@
     "command": "bash ~/.claude/statusline-command.sh"
   },
   "enabledPlugins": {
-    "frontend-design@claude-plugins-official": false,
+    "frontend-design@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "context7@claude-plugins-official": true,
-    "playwright@claude-plugins-official": false,
+    "playwright@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": false,
+    "typescript-lsp@claude-plugins-official": true,
     "vercel@claude-plugins-official": false,
-    "claude-code-setup@claude-plugins-official": false,
+    "claude-code-setup@claude-plugins-official": true,
     "commit-commands@claude-plugins-official": false,
     "chrome-devtools-mcp@claude-plugins-official": true,
     "explanatory-output-style@claude-plugins-official": false,
     "playground@claude-plugins-official": false,
     "hookify@claude-plugins-official": false,
     "sentry@claude-plugins-official": true,
-    "firecrawl@claude-plugins-official": false,
-    "cloudflare@claude-plugins-official": false,
+    "firecrawl@claude-plugins-official": true,
+    "cloudflare@claude-plugins-official": true,
     "session-report@claude-plugins-official": false,
     "deploy-on-aws@claude-plugins-official": false,
     "aws-serverless@claude-plugins-official": false,
@@ -305,23 +305,30 @@
     "aws-core@claude-plugins-official": false,
     "neon@claude-plugins-official": false,
     "aws-dev-toolkit@claude-plugins-official": false,
-    "resend@claude-plugins-official": false,
+    "resend@claude-plugins-official": true,
     "aws-amplify@claude-plugins-official": false,
     "hyperframes@claude-plugins-official": false,
     "sentry-cli@claude-plugins-official": true,
     "aws-data-analytics@claude-plugins-official": false,
-    "mapbox@claude-plugins-official": false,
+    "mapbox@claude-plugins-official": true,
     "aws-startup-advisor@claude-plugins-official": false,
     "save-to-spotify@claude-plugins-official": false,
-    "browser-use@claude-plugins-official": false,
-    "claude-security@claude-plugins-official": false,
-    "ui-ux-pro-max@ui-ux-pro-max-skill": false
+    "browser-use@claude-plugins-official": true,
+    "claude-security@claude-plugins-official": true,
+    "ui-ux-pro-max@ui-ux-pro-max-skill": true,
+    "stripe@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "ui-ux-pro-max-skill": {
       "source": {
         "source": "github",
         "repo": "nextlevelbuilder/ui-ux-pro-max-skill"
+      }
+    },
+    "marketingskills": {
+      "source": {
+        "source": "github",
+        "repo": "coreyhaines31/marketingskills"
       }
     }
   },
