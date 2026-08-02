@@ -46,6 +46,23 @@ set_default() {
     fi
 }
 
+# set_nested_bool <plist> <:path:to:key> <value> <stock>
+#
+# For keys buried inside a dictionary. `defaults write -dict-add` can only
+# replace a nested dict wholesale, which would wipe the sibling column layout,
+# so these need PlistBuddy. Revert restores <stock> rather than deleting the
+# key, because the key lives inside a dict that has to keep existing.
+#
+# Callers MUST flush cfprefsd first (see the Finder section) — editing the
+# file underneath a live cache means the daemon overwrites the change.
+set_nested_bool() {
+    local plist="$1" path="$2" val="$3" stock="$4"
+    $REVERT && val="$stock"
+    /usr/libexec/PlistBuddy -c "Set ${path} ${val}" "$plist" 2>/dev/null ||
+        /usr/libexec/PlistBuddy -c "Add ${path} bool ${val}" "$plist" 2>/dev/null ||
+        true
+}
+
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 if $REVERT; then
     echo -e "${GREEN}  Reverting macOS defaults to stock${NC}"
@@ -272,6 +289,33 @@ set_default com.apple.finder FXEnableExtensionChangeWarning -bool false
 # force it everywhere: open a folder in list view, then
 # View -> Show View Options -> Use as Defaults.
 set_default com.apple.finder FXPreferredViewStyle -string Nlsv
+
+# Stock: false everywhere. "Calculate all sizes" — list view shows real folder
+# sizes in the Size column instead of "--". Without it the column is dead
+# weight for folders, which is exactly when you want it (finding what ate the
+# disk). Set on every list-view template Finder consults for a new window:
+# StandardViewSettings is classic Finder, FK_* is the modern app-centric one,
+# ExtendedListViewSettingsV2 is what current macOS actually reads, and
+# ComputerViewSettings covers the Computer window.
+#
+# Cost: Finder walks the whole tree to total each folder, so a huge directory
+# spins for a few seconds and the sizes fill in progressively. Fine on local
+# SSD, noticeably slow over a network share.
+#
+# Same caveat as FXPreferredViewStyle above — this is the template for folders
+# with no saved state. Folders already customised keep their .DS_Store setting;
+# use View -> Show View Options -> "Use as Defaults" to force it everywhere.
+#
+# cfprefsd caches this plist; flush it or the daemon rewrites our edit.
+killall cfprefsd 2>/dev/null || true
+sleep 1
+FINDER_PLIST="$HOME/Library/Preferences/com.apple.finder.plist"
+for _vs in StandardViewSettings FK_StandardViewSettings; do
+    set_nested_bool "$FINDER_PLIST" ":${_vs}:ListViewSettings:calculateAllSizes" true false
+    set_nested_bool "$FINDER_PLIST" ":${_vs}:ExtendedListViewSettingsV2:calculateAllSizes" true false
+done
+set_nested_bool "$FINDER_PLIST" ":FK_DefaultListViewSettings:calculateAllSizes" true false
+set_nested_bool "$FINDER_PLIST" ":ComputerViewSettings:ExtendedListViewSettingsV2:calculateAllSizes" true false
 
 # NOT set: FXDefaultSearchScope. Currently SCsp ("use previous search scope"),
 # chosen deliberately in Finder settings. The alternative SCcf always searches
