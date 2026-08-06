@@ -49,6 +49,8 @@ meirpro-dotfiles/
 ├── macos/               # macOS system config
 │   ├── defaults.sh      # `defaults write` settings (run manually)
 │   ├── inventory.sh     # Machine inventory snapshot
+│   ├── bin/             # Small utilities (saytime — speak the time in am/pm)
+│   ├── cron/            # User crontab, version controlled
 │   └── launchd/         # LaunchAgents (DisplayLink no-indicator, disabled autostarts)
 ├── install.sh           # Installation script
 ├── README.md            # This file
@@ -158,6 +160,13 @@ The script only manages keys it sets itself. Anything changed through System Set
 - **`pro.meir.displaylink`** — starts DisplayLink Manager under launchd rather than its own login item, so it restarts on crash and logs somewhere findable. `verify-displaylink.sh` health-checks it. Needed because the Anker DL7400 dock drives all three displays through DisplayLink. **A stopgap** — the M5 Pro drives 3 external displays natively over one Thunderbolt port, so a TB5 dock removes the need entirely; the README carries the teardown steps and dock options.
 - **Hiding the purple screen-capture indicator: does not work on macOS 26.** The popular `screen`/direct-exec workaround is documented there as a tested dead end, with why — macOS 26 resolves capture to the responsible process and falls back to the binary's code signature, so no launch path escapes attribution. Includes why you should never grant a terminal emulator Screen Recording to work around it.
 - **Logitech G HUB, disabled** — `com.logi.ghub` (tray agent) and `com.logi.ghub.updater` (a `KeepAlive` root daemon). Both booted out and `launchctl disable`d so a G HUB reinstall can't quietly reload them.
+
+### cron
+
+`macos/cron/` — the user crontab, version controlled. Almost everything belongs in `macos/launchd/` instead; cron is used for one job where a plist would be more ceremony than the job is worth. Full detail in [`macos/cron/README.md`](macos/cron/README.md).
+
+- **`saytime`, every 15 minutes** — speaks the time as "It's 2:15 PM". macOS has this built in (Menu bar → Clock Options → Announce the time) with the same intervals and voice controls, but it **never says AM or PM** — its string is always "It's two o'clock", and the AM/PM toggle in that pane only affects the menu bar *display*. The menu bar here is 24-hour, so the built-in announcement is ambiguous. Turn the built-in off if it's on, or both fire.
+- **`%` is a cron metacharacter** — the obvious one-liner `say "It's $(date '+%-I:%M %p')"` is broken in a crontab. cron turns every unescaped `%` into a newline and pipes the remainder in as stdin, so the command dies on an unterminated quote, silently. That's why the `date` call lives in [`macos/bin/saytime`](macos/bin/saytime) and the crontab line contains no `%` at all.
 
 ### Claude Code Customizations
 
