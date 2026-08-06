@@ -162,11 +162,21 @@ Replacing the DL7400 with a Thunderbolt 5 dock eliminates DisplayLink entirely
 — and with it the purple indicator, the driver, the DRM black screens on
 Netflix/Prime/Disney+, the compression latency, and the CPU overhead.
 
-### Status (2026-08-06)
+### Status (2026-08-06, revised)
 
-**Decided: Plugable TBT-UDT3, $299.95.** Cheapest option that is
-*documented* — not just claimed in a support email — to drive three displays
-on this Mac.
+**Try the Kensington SD5000T5 EQ at $219.99 first, with the 30-day return as
+the safety net. Fall back to the Plugable TBT-UDT3 ($299.95) if it only drives
+two displays.**
+
+Revised from "decided: TBT-UDT3" after finding the Kensington at $219.99 and
+re-reading its spec: it does not claim M5 Pro is limited to two displays, it
+simply predates M5 Pro (see [below](#silent-vs-contradictory-specs-checked-2026-08-06)).
+Both docks need the same 3 USB-C→HDMI adapters, so the decision is $220 vs
+$300 for functionally identical hardware — and the Kensington adds a 60W
+downstream port and an audio jack the UDT3 lacks.
+
+Three 1080p monitors is trivial bandwidth for either; the only real question is
+whether the dock exposes three DisplayPort streams to macOS.
 
 Plugable replied to the earlier question and named two docks:
 
@@ -210,9 +220,38 @@ needed and live on the dock permanently (a one-time setup, not a daily cable).
 | **Plugable TBT-UDT3** ← chosen | **$299.95** | 0 | 0 | 3 | 3 | 15W |
 | Plugable TBT-UDH2 *(3-display disputed)* | $349.95 | **2** | 0 | 1 | **1** | **30W** |
 
-Kensington, both CalDigits and the TBT-UDT3 are vendor-confirmed for M5 Pro
-triple display. Ethernet: 2.5Gb on Kensington/TS5/both Plugables, 10Gb on TS5
-Plus/Sonnet. All charge the host at 140W.
+**Only the TBT-UDT3 and both CalDigits have M5 Pro triple display in published
+product specs.** The Kensington and the TBT-UDH2 are *blog/support-claimed but
+spec-contradicted* — see below. Ethernet: 2.5Gb on Kensington/TS5/both
+Plugables, 10Gb on TS5 Plus/Sonnet. All charge the host at 140W.
+
+### Silent vs contradictory specs (checked 2026-08-06)
+
+Two docks claim triple-display for M5 Pro in marketing while their specs say
+otherwise. The distinction between them matters:
+
+**Kensington SD5000T5 EQ (`K35201NA`) — spec is SILENT, not contradictory.**
+Its Mac line enumerates *"M4/M5 Base, M1/M2/M3/M4 Pro, and M1/M2/M3/M4 Max"* at
+dual 6K — the Pro/Max list **stops at M4**. M5 Pro/Max appear nowhere, so the
+spec makes no claim about this machine either way. Combined with the "M4/M5
+Base" lumping, that reads as copy written before M5 Pro/Max shipped. Kensington's
+[M5 Pro blog
+post](https://www.kensington.com/news/docking-connectivity-blog/macbook-pro-m5-pro-and-m5-max-unlock-triple-displays-with-thunderbolt-5-docking-stations/)
+is the newer source and says three on M5 Pro/Max. "Triple 4K @ 144Hz" is listed
+under Windows TB5 because that was the only host that could do it at the time.
+
+**Seen at $219.99 on Amazon 2026-08-06** (part `K35201NA`, listed as "Silver"
+with older copy; same SKU as the "EQ / Triple 4K" listings elsewhere) vs $299
+MSRP and ~$377 at other retailers. Cheapest option in the field by $80.
+
+**Plugable TBT-UDH2 — spec actively CONTRADICTS.** Support email says three (1
+via TB5 passthrough, 2 via HDMI), but the product page says "up to two displays
+simultaneously" and explicitly lists **M4/M5 Pro/Max at 2× 6K** — a direct claim
+about this chip. That is a real conflict, not an omission.
+
+Ports on the Kensington: 3× TB5 downstream (one 60W), 1× TB5 host (140W), 3×
+USB-A 10Gbps, combo audio jack, UHS-II SD + microSD, 2.5GbE. Requires macOS
+14.5+. 11 ports total.
 
 **The DL7400 is not strictly worse.** It wins on native video ports and on
 downstream charging — 100W vs 15W means it can fast-charge a phone or iPad,
