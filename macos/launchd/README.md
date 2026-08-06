@@ -261,6 +261,72 @@ no CPU overhead, 80–120Gb/s upstream that can host Thunderbolt SSDs), not more
 ports. Skip the TS5 Plus unless the 36W downstream matters — its DP 2.1 only
 pays off above 4K/144Hz, and these monitors are 1080p.
 
+### Port budget: what is left after three displays
+
+This is the real cost of the swap, and it is easy to miss when comparing port
+counts on spec sheets.
+
+On a Thunderbolt dock, a downstream port (**DFP**) is *either* a display *or* a
+device — never both. The host port (**UFP**) is the single cable to the Mac and
+is not usable for peripherals; power flows backwards through it (dock → Mac,
+140W via PD 3.1).
+
+The Kensington and the TBT-UDT3 have exactly three DFPs, so three monitors
+consume all of them:
+
+```
+UFP        Thunderbolt 5 host    → MacBook, 140W in     (not usable for devices)
+DFP 1      60W  (front)          → USB-C→HDMI → monitor 1
+DFP 2      15W  (rear)           → USB-C→HDMI → monitor 2
+DFP 3      15W  (rear)           → USB-C→HDMI → monitor 3
+           3× USB-A, SD+microSD, 2.5GbE, audio          ← all that remains
+```
+
+**The 60W port is consumed by a display**, so that headline feature is
+unusable in a three-monitor setup. Same for the UDT3.
+
+| After 3 displays | USB-C free | USB-A free | Downstream power |
+|---|---|---|---|
+| **Anker DL7400** (current) | **3** | 3 | **100W** |
+| Kensington SD5000T5 EQ | 0 | 3 | 7.5W max |
+| Plugable TBT-UDT3 | 0 | 3 | 7.5W max |
+| Plugable TBT-UDH2 | **5** | 3 | 30W |
+
+The DL7400 and the UDH2 keep their USB ports because their displays hang off
+*dedicated* video outputs (HDMI/DP), which are not general-purpose ports. That
+architectural difference — not the adapter count — is the actual argument for
+the UDH2.
+
+#### Recovering ports with USB-C hubs
+
+A USB-C multiport hub carries DP Alt Mode video **and** USB data over the same
+connection, so one DFP can serve a monitor *and* several USB ports. Roughly
+$305 all-in (dock + 2 hubs + 1 adapter) buys more total USB than the $365 UDH2
+route.
+
+**Hard limit: one display per DFP, always.** A hub with two HDMI ports will
+*not* drive two extended displays — that needs MST, which **macOS does not
+support**, and you get mirrored output instead. Avoid dual-HDMI hubs
+(e.g. Anker 553); that is the same limitation that made DisplayLink necessary
+in the first place.
+
+Other caveats:
+
+- Put the hub carrying the most devices on the **60W front DFP** — the rear
+  ports only supply 15W.
+- Don't buy a *large* hub (Anker 565, Plugable 9-in-1). Their Ethernet, card
+  readers and PD passthrough duplicate the dock. Something like an Anker 332
+  (5-in-1, ~$25) is the right size.
+- Check the hub does **DP Alt Mode**, not DisplayLink — some "USB hub with
+  HDMI" products are DisplayLink-based, which lands right back at the purple
+  indicator.
+- Cheap no-name hubs fail intermittently, and display dropout is the usual
+  symptom — miserable to diagnose because it mimics a dock or cable fault.
+
+**Buy plain adapters first.** Three USB-C→HDMI adapters (~$45) get the monitors
+working with the fewest failure points. Only swap one for a hub after actually
+missing the ports.
+
 ### Sources
 
 - [Apple — how many displays connect to MacBook Pro](https://support.apple.com/en-us/101571)
