@@ -162,16 +162,37 @@ Replacing the DL7400 with a Thunderbolt 5 dock eliminates DisplayLink entirely
 — and with it the purple indicator, the driver, the DRM black screens on
 Netflix/Prime/Disney+, the compression latency, and the CPU overhead.
 
-### Status (2026-07-30)
+### Status (2026-08-06)
 
-**Undecided, leaning Kensington SD5000T5 EQ.** Emailed Plugable to ask whether
-the TBT-UDH2 drives three displays on `Mac17,9` / M5 Pro — it's the only TB5
-dock with dual built-in HDMI 2.1, which would mean one adapter instead of
-three, at the lowest price of any option. Plugable's own KB still only
-discusses M4 and calls TB5 triple-display "optional", so it needs confirming
-before buying. **If they confirm → TBT-UDH2. If not → Kensington.**
+**Decided: Plugable TBT-UDT3, $299.95.** Cheapest option that is
+*documented* — not just claimed in a support email — to drive three displays
+on this Mac.
 
-Staying on the DL7400 until then. Purple indicator stays; it's accurate.
+Plugable replied to the earlier question and named two docks:
+
+- **TBT-UDT3** ($299.95) — 3× downstream TB5, no HDMI. Their product page
+  explicitly lists *"M5 Pro/Max: up to 3× 6K 60Hz or 3× 4K 144Hz"*. Needs 3
+  USB-C→HDMI adapters (~$45). **Total ~$345.**
+- **TBT-UDH2** ($349.95) — 2× HDMI 2.1 + 1× TB5 passthrough, so only 1 adapter
+  (~$15), plus 8 USB ports and 30W downstream. **Total ~$365.**
+
+**Why not the UDH2, despite fewer adapters:** its own product page contradicts
+the support reply. The page says *"supports up to two displays
+simultaneously"* and lumps *"M4/M5 Pro/Max: up to 2× 6K 60Hz"* — while the
+email says three (one via TB5 passthrough, two via HDMI). Either the page is
+stale or support was optimistic. Not worth $50 more to find out, when
+three-display support is the entire reason for the purchase.
+
+The UDT3 also beats the Kensington SD5000T5 EQ at the same price on exactly
+this point: its M5 Pro triple-display support is in published specs, not
+inferred.
+
+Unresolved: if the 5 extra USB ports and 30W downstream charging turn out to
+matter, ask Plugable to reconcile the UDH2 page against their email before
+buying it.
+
+Staying on the DL7400 until the replacement arrives. Purple indicator stays;
+it's accurate.
 
 ### Dock comparison
 
@@ -186,11 +207,12 @@ needed and live on the dock permanently (a one-time setup, not a daily cable).
 | CalDigit TS5 | $399 | 0 | 0 | 3 | 3 | 15–20W |
 | CalDigit TS5 Plus | $499 | 0 | 1 | 2 | 2 | 36W |
 | Sonnet Echo 21 SuperDock | $499 | 1 | 1 | 3 | 1–2 | 15W |
-| Plugable TBT-UDH2 *(unconfirmed)* | $279–349 | **2** | 0 | 3 | 1 | ? |
+| **Plugable TBT-UDT3** ← chosen | **$299.95** | 0 | 0 | 3 | 3 | 15W |
+| Plugable TBT-UDH2 *(3-display disputed)* | $349.95 | **2** | 0 | 1 | **1** | **30W** |
 
-Kensington and both CalDigits are vendor-confirmed for M5 Pro triple display.
-Ethernet: 2.5Gb on Kensington/TS5, 10Gb on TS5 Plus/Sonnet. All charge the host
-at 140W.
+Kensington, both CalDigits and the TBT-UDT3 are vendor-confirmed for M5 Pro
+triple display. Ethernet: 2.5Gb on Kensington/TS5/both Plugables, 10Gb on TS5
+Plus/Sonnet. All charge the host at 140W.
 
 **The DL7400 is not strictly worse.** It wins on native video ports and on
 downstream charging — 100W vs 15W means it can fast-charge a phone or iPad,
