@@ -33,3 +33,9 @@ export PATH="$HOME/bin:$PATH"
 # via a stage token instead (2026-07-23), so nothing reads the capture
 # file. Sourcing it would only add a DEBUG trap / preexec hook for no gain.
 export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
+
+# fzf: Ctrl-R history search, Ctrl-T file insert, Alt-C cd. `fzf --zsh`
+# emits the keybindings + completion inline (fzf >= 0.48), which replaces
+# the old ~/.fzf.zsh that install.sh used to write into $HOME — same reason
+# .aliases is sourced above rather than appended.
+command -v fzf >/dev/null && source <(fzf --zsh)
