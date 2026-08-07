@@ -144,7 +144,19 @@ if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
     # Create symlinks for files
     echo -e "${YELLOW}Creating symlinks for files...${NC}"
     create_symlink "$REPO_DIR/claude/settings.json" "$CLAUDE_DIR/settings.json" "settings.json"
-    create_symlink "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md" "CLAUDE.md"
+    # CLAUDE.md is deliberately NOT linked unconditionally. On a machine that
+    # keeps personal machine notes (SSH hosts, key paths, prod procedures) those
+    # live in the private meirpro-machine repo and ~/.claude/CLAUDE.md is a
+    # symlink to them — and create_symlink() deletes an existing symlink without
+    # backing it up, so linking over it would silently change what loads in every
+    # session. Only link the repo copy when nothing is there yet.
+    if [ -e "$CLAUDE_DIR/CLAUDE.md" ] || [ -L "$CLAUDE_DIR/CLAUDE.md" ]; then
+        echo -e "${YELLOW}  Skipped CLAUDE.md — $CLAUDE_DIR/CLAUDE.md already exists${NC}"
+        echo -e "${YELLOW}    Link it yourself if you want this repo's copy:${NC}"
+        echo -e "${YELLOW}    ln -sfn \"$REPO_DIR/claude/CLAUDE.md\" \"$CLAUDE_DIR/CLAUDE.md\"${NC}"
+    else
+        create_symlink "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md" "CLAUDE.md"
+    fi
     create_symlink "$REPO_DIR/claude/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh" "statusline-command.sh"
     create_symlink "$REPO_DIR/claude/claude.json" "$CLAUDE_DIR/claude.json" "claude.json"
     echo
