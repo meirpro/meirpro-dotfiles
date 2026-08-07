@@ -10,23 +10,47 @@ the one shape where a plist is more ceremony than it's worth.
 
 ## Jobs
 
-### `saytime` — announce the time in am/pm, every 15 minutes
+### `saytime` — a 15-minute passage-of-time reminder
 
 ```cron
+SAYTIME_VOLUME=0.35
 */15 * * * * /Users/meirpro/git/meirpro-dotfiles/macos/bin/saytime
 ```
 
-macOS already has this feature — System Settings → Menu bar → Clock Options →
-**Announce the time**, with the same quarter-hour intervals and a full
-Customize Voice panel (rate, pitch, volume, timbre, sentence pause).
+Speaks "It's 2:15". The purpose is noticing that another 15 minutes went by,
+not looking up the time — so it deliberately omits AM/PM.
 
-**It does not say AM or PM.** Its spoken string is always `It's two o'clock`.
-AM/PM in that settings pane is a *display* option for the menu bar clock, not
-an announcement one. The menu bar here is 24-hour, so the built-in
-announcement is ambiguous, and changing the clock format to fix it isn't
-wanted. Hence the script.
+macOS has an equivalent built-in (Menu bar → Clock Options → **Announce the
+time**) on the same quarter-hour schedule. **It is disabled on this machine**,
+or both would fire. Re-enable it and remove this job if the script ever
+becomes more trouble than it's worth:
 
-Turn the built-in one off if it's enabled, or both fire.
+```bash
+/usr/libexec/PlistBuddy -c "Set :TimeAnnouncementPrefs:TimeAnnouncementsEnabled true" \
+  ~/Library/Preferences/com.apple.speech.synthesis.general.prefs.plist && killall cfprefsd
+```
+
+#### Settings
+
+Environment variables, set in the crontab above:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `SAYTIME_VOLUME` | `0.35` | 0.0–1.0. Attenuates *relative* to system volume — cannot exceed it. |
+| `SAYTIME_VOICE` | system voice | Any name from `say -v ?`. Enhanced voices sound far better than the default. |
+| `SAYTIME_RATE` | voice default | Words per minute. |
+
+**`say` has no volume flag.** Volume comes from an inline speech command,
+`[[volm 0.35]]`, prepended to the string — the synthesiser consumes it instead
+of reading it aloud. This is the only way to attenuate `say` without changing
+system output volume for everything else.
+
+#### This is a stopgap
+
+It has no idea whether you're on a call — it will happily talk over a meeting.
+The replacement is a menu bar app with a settings GUI and a mic/camera guard.
+This script stays regardless: it has no dependencies and takes two seconds to
+verify, which makes it the thing that still works when the app doesn't.
 
 ## The `%` trap — why this calls a script instead of inlining `date`
 

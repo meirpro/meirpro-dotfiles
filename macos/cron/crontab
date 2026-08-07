@@ -1,3 +1,5 @@
-# Speak the time every 15 minutes in am/pm (menu bar clock is 24h).
-# Source + docs: ~/git/meirpro-dotfiles/macos/cron/README.md
+# Speak the time every 15 minutes, as a passage-of-time reminder.
+# Volume is 0.0–1.0, relative to system output volume. See:
+#   ~/git/meirpro-dotfiles/macos/cron/README.md
+SAYTIME_VOLUME=0.35
 */15 * * * * /Users/meirpro/git/meirpro-dotfiles/macos/bin/saytime

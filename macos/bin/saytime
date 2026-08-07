@@ -1,27 +1,39 @@
 #!/usr/bin/env bash
 #
-# Speak the current time in 12-hour am/pm, regardless of the menu bar clock.
+# Speak the current time as a 15-minute passage-of-time reminder.
 #
-# macOS has a built-in "Announce the time" (System Settings → Menu bar → Clock
-# Options) with the same quarter-hour intervals and the same voice controls.
-# The one thing it will not do is say AM or PM — its string is always
-# "It's two o'clock". AM/PM is a *display* setting for the menu bar clock only.
-# This machine runs a 24-hour menu bar, so the built-in announcement is
-# ambiguous and switching the clock format to fix it isn't wanted.
+# This is a stopgap. The real version is a menu bar app with a settings GUI,
+# a mic/camera guard, and independent volume — see the `quarter` project.
+# Kept because it is dependency-free and survives any rewrite.
 #
-# Usage:  saytime            # "It's 2:15 PM"
-#         saytime --print    # print instead of speak (for testing/cron debug)
+# Not AM/PM: the point is noticing that 15 minutes went by, and which half of
+# the day it is was never in doubt. macOS's built-in announcement is otherwise
+# equivalent (Menu bar → Clock Options → Announce the time); it is disabled on
+# this machine so the two don't both fire.
+#
+# Usage:  saytime            # speaks "It's 2:15"
+#         saytime --print    # print instead of speak (testing / cron debug)
+#
+# Config, via environment (cron sets none of these; edit the crontab to):
+#   SAYTIME_VOLUME   0.0–1.0, default 0.35. Relative to system output volume.
+#   SAYTIME_VOICE    a voice name from `say -v ?`, default = system voice.
+#   SAYTIME_RATE     words per minute, default = voice's own rate.
 #
 # Driven by cron every 15 minutes — see macos/cron/README.md.
 
 set -uo pipefail
 
-# %-I strips the leading zero (2, not 02). %p is AM/PM.
-# On the hour, drop ":00" — "It's 2 PM" reads better than "It's 2:00 PM".
+VOLUME="${SAYTIME_VOLUME:-0.35}"
+VOICE="${SAYTIME_VOICE:-}"
+RATE="${SAYTIME_RATE:-}"
+
+# %-I strips the leading zero (2, not 02) and gives 12-hour regardless of the
+# 24-hour menu bar clock. On the hour, say "2 o'clock" rather than "2:00",
+# which some voices read as "two colon zero zero".
 if [[ $(date '+%M') == "00" ]]; then
-    phrase="It's $(date '+%-I %p')"
+    phrase="It's $(date '+%-I') o'clock"
 else
-    phrase="It's $(date '+%-I:%M %p')"
+    phrase="It's $(date '+%-I:%M')"
 fi
 
 if [[ ${1:-} == "--print" ]]; then
@@ -29,4 +41,13 @@ if [[ ${1:-} == "--print" ]]; then
     exit 0
 fi
 
-exec /usr/bin/say "$phrase"
+# `say` has no --volume flag. Volume is set with an inline speech command,
+# [[volm N]], which the synthesiser consumes rather than reads aloud. It
+# attenuates relative to system output volume — it cannot exceed it.
+args=()
+[[ -n $VOICE ]] && args+=(-v "$VOICE")
+[[ -n $RATE  ]] && args+=(-r "$RATE")
+
+# ${args[@]+"${args[@]}"} not "${args[@]}": macOS ships bash 3.2, where an
+# empty array expansion counts as unset and trips `set -u`. Bash 4.4+ fixed it.
+exec /usr/bin/say ${args[@]+"${args[@]}"} "[[volm ${VOLUME}]] ${phrase}"
