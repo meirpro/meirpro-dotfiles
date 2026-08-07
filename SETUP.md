@@ -40,6 +40,26 @@ brew install \
   htop
 ```
 
+### GUI Apps (casks)
+
+```bash
+brew install --cask sloth
+```
+
+**Sloth** — a GUI for `lsof`: every open file, socket, port and pipe, per
+process, live and filterable. The one app worth installing here because the CLI
+alternative is genuinely painful — `lsof -i :9222` answers "who has this port"
+but not "what else does that process have open", and Activity Monitor's *Open
+Files and Ports* has no filter and no port column.
+
+Reach for it when a port is occupied by an unknown process, a volume won't
+eject, or a daemon is holding a file you're trying to replace. See
+[Browser automation](#browser-automation-browser-use--chrome-cdp) — the
+automation Chrome holds `9222`, and Sloth is how you confirm which Chrome.
+
+`macos/inventory.sh --brewfile` regenerates cask lines for everything installed
+in `/Applications`; this section is only for apps worth a deliberate note.
+
 ## 🖥️ macOS System Defaults
 
 Run once per machine, after the installer:
@@ -156,6 +176,57 @@ git config --global user.email "your.actual.email@example.com"
 # Check installation
 claude --version
 ```
+
+### Browser automation (browser-use / Chrome CDP)
+
+Gives Claude Code direct browser control over CDP — navigation, clicks, DOM and
+network inspection, screenshots.
+
+```bash
+uv tool install browser-use --python 3.12   # --upgrade --force to update
+browser-use skill install                   # writes SKILL.md into ~/.claude/skills
+                                            # and 6 other agent dirs
+```
+
+**Chromium-family only.** It attaches over the Chrome DevTools Protocol, and
+Firefox dropped CDP in favour of WebDriver BiDi — the package contains no
+`firefox`/`gecko`/`bidi` code path at all. Detection covers Chrome, Chrome
+Canary/Beta/Dev, Chromium, Brave and Edge. Don't spend time trying to point it
+at Firefox.
+
+**Run a dedicated automation Chrome, not your daily browser.** Attaching to a
+running Chrome means ticking *Allow remote debugging* at
+`chrome://inspect/#remote-debugging` plus an Allow popup per connection —
+whereas a browser launched with the flag needs neither, and keeps automation out
+of your real profile, tabs and cookies:
+
+```bash
+mkdir -p ~/.browser-use-chrome-profile
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.browser-use-chrome-profile" \
+  --no-first-run --no-default-browser-check \
+  about:blank >/dev/null 2>&1 &
+
+curl -s http://127.0.0.1:9222/json/version    # expect JSON, not empty
+BU_CDP_URL=http://127.0.0.1:9222 browser-use <<'PY'
+ensure_real_tab(); print(page_info())
+PY
+```
+
+The daemon holds the connection after the first call, so later invocations need
+no `BU_CDP_URL`. Quit that Chrome window and you must relaunch it with the same
+command. The profile starts empty — sign in once per site inside that window and
+it persists.
+
+```bash
+browser-use --doctor    # want: chrome running / daemon alive / connections >= 1
+```
+
+`Browser Use cloud auth FAIL` in that output is expected and fine; local Chrome
+needs no API key. Recordings are off by default (`browser-use recordings`) —
+enabling them writes screenshots and page content to disk, so leave off unless
+you want them.
 
 ## 🛠️ Optional Development Tools
 
