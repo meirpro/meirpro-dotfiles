@@ -143,7 +143,23 @@ if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
 
     # Create symlinks for files
     echo -e "${YELLOW}Creating symlinks for files...${NC}"
-    create_symlink "$REPO_DIR/claude/settings.json" "$CLAUDE_DIR/settings.json" "settings.json"
+    # settings.json is deliberately NOT symlinked. Claude Code rewrites it on
+    # every config change (plugin toggles, /config, remote env selection) with an
+    # atomic temp-file + rename, which REPLACES a symlink with a regular file. So
+    # the link silently dies, the repo copy freezes, and the two drift — while any
+    # machine-specific key written before the link broke (e.g. remote
+    # .defaultEnvironmentId) has already been committed to this PUBLIC repo.
+    # Seed a new machine by copy instead, and never overwrite a live config.
+    # Machine-specific settings belong in the private meirpro-machine repo, via
+    # ~/.claude/settings.local.json (gitignored here; loads after settings.json).
+    if [ -e "$CLAUDE_DIR/settings.json" ]; then
+        echo -e "${YELLOW}  Skipped settings.json — $CLAUDE_DIR/settings.json already exists${NC}"
+        echo -e "${YELLOW}    Claude Code owns this file; diff it yourself if you want the repo's copy:${NC}"
+        echo -e "${YELLOW}    diff \"$CLAUDE_DIR/settings.json\" \"$REPO_DIR/claude/settings.json\"${NC}"
+    else
+        cp "$REPO_DIR/claude/settings.json" "$CLAUDE_DIR/settings.json"
+        echo -e "${GREEN}  ✓ settings.json (copied, not linked)${NC}"
+    fi
     # CLAUDE.md is deliberately NOT linked unconditionally. On a machine that
     # keeps personal machine notes (SSH hosts, key paths, prod procedures) those
     # live in the private meirpro-machine repo and ~/.claude/CLAUDE.md is a
