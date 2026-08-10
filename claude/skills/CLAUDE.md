@@ -18,7 +18,7 @@ examples.)
 
    ```bash
    ln -s ~/git/meirpro-dotfiles/claude/skills/<name> \
-         /Users/lightwing/.claude/skills/<name>
+         "$HOME/.claude/skills/<name>"
    ```
 
 3. Verify the skill still resolves through the symlink (list its files, run

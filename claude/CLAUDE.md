@@ -1,326 +1,245 @@
-# Team Development Rules
+# Development Rules
 
 > Shared configuration from [meirpro-dotfiles](https://github.com/meirpro/meirpro-dotfiles).
-> Hooks automatically check TypeScript, lint, and format on every file save.
-
-## Code Quality
-
-- Check TypeScript (`npx tsc --noEmit`) and linting (`npm run lint`) after making changes to ensure nothing is broken. Linting issues are suggestions — follow them when correct, but they can occasionally be wrong.
-- Don't use placeholder or "coming soon" code — always implement full functionality.
-- Format code with the project's formatter (Prettier, etc.) after editing files.
-- **Write tests alongside implementation, not after** — write or update tests as you build, not as a separate follow-up step. Tests written after the fact tend to just confirm what the code already does rather than validating correctness.
-
-## Regression Ratchet — make recurring bug classes unrepresentable
-
-**When a bug class ships, the fix is not just to fix the code — it is to make that same bug class impossible to reintroduce silently.** An issue seen once should be caught **mechanically** forever after, by deterministic code (a lint rule / AST check / codebase-walking test), never by an agent or human remembering. The ratchet grows one tooth per incident; it is not a big-bang setup. (The `hayom` repo is the worked reference — 18+ custom ESLint rules, several codebase-walking guard tests, and a meta-test that guards the lint config itself.)
-
-**The lifecycle for every non-trivial bug:**
-1. Fix the code.
-2. Add a mechanical guard that *would have caught it*: a uniquely-named custom ESLint rule, a `no-restricted-syntax`/`no-restricted-imports` selector, or — when an AST selector can't express the pattern (e.g. it varies by parameter name) — a vitest test that walks the source tree and fails on the pattern.
-3. Document the incident in the guard's header: what it bans, **why it's a bug class** (`shipped once — the "<short incident name>" bug`, with PR/commit SHA), and what it deliberately does NOT flag (the escape hatch).
-4. If the guard mechanism itself has a failure mode, guard the guard (a meta-test).
-5. Wire it into the gate so it runs unattended (tsc + eslint + tests in CI and the save-time hook).
-
-**Mechanism choices (learned the hard way):**
-- **Prefer uniquely-named custom rules over `no-restricted-syntax`.** ESLint flat config *replaces* (does not merge) a rule's options when multiple blocks match the same file — last block wins — so a late `no-restricted-syntax` block can silently disable every earlier selector (observed: ~8 days inert before anyone noticed). A custom-named rule composes and can neither clobber nor be clobbered. If you must use `no-restricted-syntax`, duplicate the selectors into the last-matching (most specific) block, and pin the resolved config with a test that calls `eslint.calculateConfigForFile()` **and** `eslint.lintText()` — a clobbered selector still *appears* present but is silently inert, so verify it actually fires.
-- **Escape hatches are explicit, inline, and reasoned** — a greppable marker with a justification (`// allow-whole-done: <reason>`, `/* i18n-exempt: <reason> */`), never a blanket file-level disable.
-- **Pair a rule with its seam.** If a rule bans direct use of a set of names in favor of a choke-point module, add a sync test asserting that name list still matches the module's real exports, so the rule can't go stale on a rename.
-
-**Naming + placement:** guard tests live alongside the source, named by the behavior/pattern they pin: `*.regression.test.ts` (documents a specific shipped incident + its fix commit), `*.guard.test.ts` (an invariant), `*.rule.test.ts` (walks the tree or runs `eslint.lintText`).
-
-**Don't retrofit a whole lint stack mid-task** to add one guard — add the single rule/test now and note "formalize into ESLint/CI" as a follow-up if the project lacks the harness. A dedicated deterministic check (e.g. a `tsx` script wired to `npm run lint`) is a legitimate stand-in until a real ESLint flat-config home exists.
-
-## Time Estimates — always give both human and AI
-
-Whenever you quote a time estimate for a task (in TODO docs, scope discussions, planning replies, anywhere it would help me decide what to hand off vs do myself), give **both** numbers, every time:
-
-- **Human:** developer-hours assuming the real workflow — read code, decide, type, run CI between iterations, second-guess naming, switch contexts, get pulled into Slack mid-task. This is what you'd quote a teammate.
-- **AI:** wall-clock minutes for a Claude Code session, bounded by tool roundtrips, file reads/writes, and tsc/test runs. The clock starts when you have a clear directive and stops when the work is committed and verified.
-
-Format: `~2-4 h human / ~20 min AI`, or for backlog items inside `🟢 / 🟡 / 🔴` annotations: `🟢 ~30 min human / ~5 min AI`.
-
-**Both estimates are workload-based, not a fixed conversion ratio.** What compresses vs what doesn't:
-
-- **Compresses dramatically for AI** (typing, mechanical refactors across many files, regenerating boilerplate, running tsc/test loops, writing test fixtures, navigating large codebases via grep).
-- **Compresses moderately** (deciding where a new module belongs, naming, working out an API surface — still faster but you do think before typing).
-- **Doesn't compress at all**:
-  - Real-device verification (iPhone/Android perf, actual touch handling).
-  - External coordination (email to vendor, WhatsApp to publisher, OAuth setup with a third party).
-  - Migration verification that requires watching real user data behave across sync.
-  - Anything where the bottleneck is "wait for human to look at this and decide" or "wait for CI to deploy and then poke the staging URL."
-  - Long debugging sessions where the answer requires accumulated context about *this specific user's* setup or data.
-
-For tasks where AI cannot meaningfully compress, write `AI: n/a — verification only` or `AI: ~5 min prep, then human` so the dual format stays consistent.
-
-**Don't sandbag the AI number.** If the work is mechanical and ~15 minutes is the honest estimate, say 15 minutes — don't pad to feel safer. The whole point of the dual format is that the user can decide quickly which tasks are worth picking up themselves vs handing off.
-
-## Multi-Agent Verify-then-Fix Pattern (measured 2026-06)
-
-When asked to verify that a system behaves as intended — and then fix what's found — the measured-efficient structure is two delegated phases. The orchestrating session scouts inline first (find the exact files, grab file:line anchors for each behavior), then stays thin: delegation is what keeps the main context flat and the session usable afterwards.
-
-**Phase 1 — adversarial verification workflow** (background, non-frontier/sonnet-class agents):
-
-- One verifier agent per behavior dimension. A "works" verdict requires **executed tests** (scratch tests written in the project's real test harness, run, then deleted), never code-reading alone. Code-reading supports only "the path doesn't exist" claims, with file:line citations.
-- Every reported issue goes to a second, adversarial **skeptic agent** that tries to refute it with its own executed tests before it counts as confirmed. This kills plausible-but-wrong findings before any fix effort is spent — and the survivors come with ready-made repro tests and exact anchors, which is what makes Phase 2 cheap.
-- Parallel agents share the checkout: each owns a uniquely-named scratch test file, deletes it when done, touches nothing else, never commits.
-
-**Phase 2 — grouped fix delegation** (decisions pre-made by the orchestrator, written into the prompts):
-
-- Group fixes by **file ownership, not topic**: no two parallel agents may touch the same file; groups sharing a file run sequentially. Expect cross-file fallout no agent owns (e.g. a signature change breaking a caller outside every group) — the orchestrator fixes those seams itself.
-- Each agent works test-first, self-times with `date +%s` per fix and reports per-fix elapsed, runs only its own tests, reports typecheck errors only in its own files, never commits, never runs repo-wide formatters.
-- The orchestrator then runs the full suite + typecheck, **attributes any failures before reacting** (parallel sessions may have broken something unrelated — check `git status` for files no agent owned), and commits in small logical chunks by named files. Files entangled with another session's uncommitted work get held and reported, not committed.
-
-**Measured economics** (one full run; use to calibrate AI estimates):
-
-- Verification: 8 dimensions → 25 agents, ~18 min wall, ~1.5M subagent tokens, ~$22, ~160 executed tests. 16/17 findings survived the skeptics — the adversarial pass is worth its cost.
-- Fixes: 16 confirmed issues → 5 grouped agents (3 parallel + 1 sequenced + orchestrator seam work), ~31 min wall including final verification and commits, ~344k subagent tokens, ~$12. Individual groups ran ~2–10 min; a 4-fix group ~7 min.
-- The fix phase cost roughly **half** the verification phase despite writing all the code — tightly-specced agents (file lists, acceptance tests, decisions already made) don't wander.
-- Orchestrator context grew only ~4 percentage points across the entire fix phase. That headroom is the point: delegation isn't just parallelism, it's what lets one session verify, fix, commit, and still handle follow-ups.
-
-**Estimate calibration:** a verified bug with a repro test and file:line anchor, delegated to a specced sonnet-class agent, lands in ~2–10 min AI each (batch of ~16: ~30 min AI wall). Quote verification-of-a-subsystem as ~20 min AI + ~$20-25 in subagent spend, and say the spend out loud — it's billed differently than the orchestrator's own time.
+> Hooks check TypeScript, lint, and format on every file save.
+>
+> Machine-specific facts (hosts, credential paths, installed tools, local
+> plumbing) do **not** belong here — this repo is public. They live in the
+> private `meirpro-machine` repo, which imports this file.
 
 ## Git Safety
 
-> ⚠ **The four staging rules below AND the branch-move ban are ENFORCED
-> at the binary level by the `safe-git` wrapper at `~/bin/git` →
-> `meirpro-dotfiles/git/safe-git`.** Violating any of them returns exit
-> 64 with a printed explanation — the real `git` is never reached. This
-> is intentional: rules in CLAUDE.md alone get forgotten in the middle
-> of a long session.
+> ⚠ The four staging rules and the branch-move ban are **enforced at the binary
+> level** by the `safe-git` wrapper (`~/bin/git` → `meirpro-dotfiles/git/safe-git`).
+> Violations return exit 64 with an explanation; real `git` is never reached.
+> That's deliberate — rules in CLAUDE.md alone get forgotten mid-session.
 >
-> Bypasses are SCOPED and logged to `~/.claude/git-bypass.log`:
-> `GIT_UNSAFE_STAGE=1` for the staging rules; `GIT_UNSAFE_BRANCH=1` for
-> one HEAD-moving checkout/switch — the branch bypass may ONLY be used
-> with the user's explicit, in-conversation permission for that specific
-> move. One var never unlocks the other rule family.
+> Enforced: no `git add -A` / `git add .` / `git commit -a`; `add` and `commit`
+> must be one shell invocation (`git add f1 f2 && git commit -m "…"`); no
+> HEAD-moving `checkout`/`switch`. Bypasses are scoped and logged to
+> `~/.claude/git-bypass.log` — `GIT_UNSAFE_STAGE=1` for staging,
+> `GIT_UNSAFE_BRANCH=1` for one branch move, and the branch bypass needs the
+> user's explicit in-conversation permission for that specific move.
 
-- **Always pull the latest changes before starting work**: `git pull origin $(git branch --show-current)`. This avoids merge conflicts and wasted effort from working on stale code.
-- **NEVER include these lines in commit messages:**
-  ```
-  Generated with Claude Code
+The wrapper catches the above. These have no safety net:
 
-  Co-Authored-By: Claude <noreply@anthropic.com>
-  ```
-- **NEVER use `git add -A` or `git add .`** — always stage specific files by name. `-A` and `.` stage every changed file in the tree, including ones edited by parallel agents or generated artifacts. *(Hook-enforced: `safe-git` refuses both before reaching real git.)*
-- **NEVER stage files and commit in separate commands** (e.g. `git add file` then `git commit`). Always combine into a single shell invocation: `git add file1 file2 && git commit -m "message"`. *(Hook-enforced: `safe-git` requires `git add ... && git commit` in the parent shell command for any add or commit invocation.)*
-- **NEVER use `git commit -a`** — it's `git add -A` in disguise. *(Hook-enforced.)*
-- Review `git status` and `git diff` before committing. If you see changed files that you did NOT modify, another agent may be working in parallel — do NOT stage or commit those files.
-- **Run tests before committing** if the project has a test suite. Check `package.json` for `test`, `test:unit`, or similar scripts. A quick `npm test` catches regressions before they're pushed.
-- **Keep commits small and logically grouped.** Each commit should represent ONE logical change (one feature, one bug fix, one refactor). If you've made changes across many files, split them into multiple commits by concern. A commit touching 10+ files is a warning sign — 94 files in one commit is unacceptable. Large commits are nearly impossible to review, debug, or revert. When in doubt, commit more often, not less.
-- **Commit completed work proactively (overrides "only commit when asked").** When you finish writing a file that is logically complete and stands on its own (a spec doc, a standalone module, a self-contained fix), commit it without waiting to be asked. If the file is one piece of a larger change still in progress, hold it and commit it together with the rest once that unit of work is ready. The judgement is "is this a coherent, reviewable unit yet?" — if yes, commit; if it only makes sense alongside not-yet-written changes, wait for them. Still never commit parallel-agent WIP or unrelated dirty files (stage by name).
-- **NEVER drop a git stash.** When `git stash pop` fails due to conflicts, resolve the conflicts — don't drop. A dropped stash is irrecoverable. If conflicts are in unrelated files, use `git checkout --theirs <file>` for those files then `git stash pop` again, or apply as a patch with `git stash show -p | git apply`.
-- **Assume parallel agents are always active.** Other agents may be editing files at the same time — especially shared files like translation JSONs, CLAUDE.md, or CSS. Before stashing, resetting, or discarding changes, verify which changes are yours. If `git diff` or `git status` shows modifications you didn't make, **do not touch those files** — they belong to another agent. When in doubt, ask the user rather than taking destructive action.
-- **Don't recommend destructive git ops to the user.** Never suggest `git reset --hard`, `git clean -fd`, `git checkout -- .`, or `git branch -D` — not even when the working tree looks "messy" or local has diverged from origin. Parallel sessions/agents routinely leave uncommitted WIP that looks unattributed but is real work; suggesting `--hard` makes the user destroy it. If cleanup is genuinely needed, suggest `git stash -u` first so the user can `stash pop` afterwards. If the goal is just "get to a clean origin/master state," create a fresh branch off `origin/master` instead — local master can stay divergent.
-- **A checkout's branch is a SHARED resource — don't change it unilaterally; when branching is needed, ask how. *(Hook-enforced as of 2026-07-21: `safe-git` refuses ALL HEAD-moving `git checkout` / `git switch` forms — including `checkout -b` and returning to `main` — with exit 64. File restores `git checkout -- <path>` / `git restore` and `git worktree add` pass. Bypass `GIT_UNSAFE_BRANCH=1` only with the user's explicit permission; logged.)*** My sessions often run in parallel in one working directory (a single git HEAD) alongside the user and other agents, so `git switch` / `git checkout -b` moves the branch for *everyone* in that checkout and can cross wires between sessions (observed 2026-06-24: a commit stranded on another session's branch + a migration-number collision; 2026-07-21: an agent minted four `ship/*` branches on the shared CRM checkout to imitate `npm run ship` when PowerShell was missing — "the ship script would have done it" is NOT permission; a missing tool means ASK, not imitate). The rule: **work on whatever branch the checkout is already on; never switch it or branch off it without the user's say-so.** When a task needs a different branch, ASK which they want — (a) **switch the shared checkout** to it (every agent here moves with it — the user does this when they want all agents on one branch), or (b) an isolated **`git worktree`** (`git worktree add .claude/worktrees/<name> -b <branch>`; this work only, others stay put). There is NO fixed default (not always `main`, not always a worktree) — the user picks per situation.
-- **NEVER create git worktrees under `/tmp`** (or `/private/tmp`, `$TMPDIR`). macOS purges tmp on reboot and on a 3-day unused-file timer, so a crash or restart silently destroys any uncommitted work in a tmp worktree — and orphans the worktree registration. Put worktrees in the repo's `.claude/worktrees/<name>/` instead (the per-repo `.claude/` folder is the durable scratch home); ensure `.claude/worktrees/` is in that repo's `.gitignore` BEFORE creating the first one. Same rule for any scratch checkout meant to outlive a single command (verify builds, cherry-pick staging, review copies). `/tmp` is fine only for artifacts that are disposable by design: logs, one-shot snapshot builds removed in the same command, downloaded scratch. Caveat: full test-suite runs inside a NESTED worktree (`.claude/worktrees/` lives inside the repo) can hit tooling artifacts (observed: fake-indexeddb wiring failures that pass in a normal checkout) — treat the worktree as edit isolation, not the test oracle; run the authoritative suite in the main checkout or CI.
+- **Pull before starting work**: `git pull origin $(git branch --show-current)`.
+- **Never** put `Generated with Claude Code` or `Co-Authored-By: Claude` in a
+  commit message.
+- **Stage by name, always.** `-A` and `.` sweep in files edited by parallel
+  agents and generated artifacts. Review `git status` / `git diff` first — if
+  you see changes you didn't make, they're another agent's. Don't stage them,
+  don't stash them, don't discard them. Ask.
+- **A checkout's branch is a shared resource.** Sessions run in parallel in one
+  working directory, so switching moves the branch for *everyone* (observed
+  2026-06-24: a commit stranded on another session's branch + a migration-number
+  collision; 2026-07-21: an agent minted four `ship/*` branches to imitate a
+  missing `npm run ship` — a missing tool means ASK, not imitate). Work on the
+  branch the checkout is already on. When another branch is needed, ask which:
+  switch the shared checkout, or an isolated
+  `git worktree add .claude/worktrees/<name> -b <branch>`. There is no default.
+- **Never create worktrees under `/tmp`** (or `/private/tmp`, `$TMPDIR`) —
+  macOS purges tmp on reboot and on a 3-day timer, silently destroying
+  uncommitted work and orphaning the registration. Use the repo's
+  `.claude/worktrees/<name>/`, and gitignore that dir *before* the first one.
+  Same for any scratch checkout meant to outlive one command. Caveat: a nested
+  worktree is edit isolation, **not** the test oracle — run the authoritative
+  suite in the main checkout or CI.
+- **Never drop a git stash.** If `git stash pop` conflicts, resolve it. A
+  dropped stash is irrecoverable. For conflicts in unrelated files, use
+  `git checkout --theirs <file>` then pop again, or
+  `git stash show -p | git apply`.
+- **Don't recommend destructive git ops.** Never suggest `git reset --hard`,
+  `git clean -fd`, `git checkout -- .`, or `git branch -D` — not even when the
+  tree looks messy. Parallel sessions leave real WIP that looks unattributed.
+  Suggest `git stash -u` so it's recoverable, or branch off `origin/master`
+  fresh if the goal is just a clean state.
+- **Run tests before committing** if the project has a suite.
+- **Keep commits small.** One logical change each. A commit touching 10+ files
+  is a warning sign.
+- **Commit completed work proactively** (this overrides "only commit when
+  asked"). When a file is logically complete and stands on its own, commit it.
+  If it's one piece of a larger in-progress change, hold it until that unit is
+  ready. Never commit parallel-agent WIP or unrelated dirty files.
+
+## Regression Ratchet
+
+**When a bug class ships, fixing the code isn't the fix — making that class
+impossible to reintroduce silently is.** Anything seen once should be caught
+**mechanically** forever after, by deterministic code, never by anyone
+remembering. One tooth per incident; not a big-bang setup. (`hayom` is the
+worked reference: 18+ custom ESLint rules, codebase-walking guard tests, and a
+meta-test guarding the lint config itself.)
+
+Lifecycle for every non-trivial bug:
+
+1. Fix the code.
+2. Add a mechanical guard that *would have caught it* — a uniquely-named custom
+   ESLint rule, a `no-restricted-syntax`/`no-restricted-imports` selector, or a
+   test that walks the source tree when an AST selector can't express the
+   pattern.
+3. Document the incident in the guard's header: what it bans, why it's a bug
+   class (with PR/commit SHA), and what it deliberately does *not* flag.
+4. If the guard itself has a failure mode, guard the guard.
+5. Wire it into the gate so it runs unattended (CI + the save-time hook).
+
+**Prefer uniquely-named custom rules over `no-restricted-syntax`.** ESLint flat
+config *replaces* rather than merges a rule's options when several blocks match
+the same file — last block wins — so a late `no-restricted-syntax` block can
+silently disable every earlier selector (observed: ~8 days inert). A custom
+rule can neither clobber nor be clobbered. If you must use
+`no-restricted-syntax`, duplicate selectors into the last-matching block and
+pin it with a test that calls both `eslint.calculateConfigForFile()` **and**
+`eslint.lintText()` — a clobbered selector still *appears* present while being
+inert.
+
+**Escape hatches are explicit, inline, and reasoned** — a greppable marker with
+a justification (`// allow-whole-done: <reason>`), never a file-level disable.
+**Pair a rule with its seam**: if it bans direct use of some names in favor of
+a choke-point module, add a sync test asserting the list still matches that
+module's real exports.
+
+Don't retrofit a whole lint stack mid-task to add one guard — add the rule now,
+note "formalize into ESLint/CI" as follow-up.
+
+## Time Estimates — always give both
+
+Whenever you quote a time estimate, give **both** numbers:
+
+- **Human**: developer-hours for the real workflow — read, decide, type, wait
+  on CI, switch contexts.
+- **AI**: wall-clock minutes for a Claude Code session, from clear directive to
+  committed and verified.
+
+Format: `~2-4 h human / ~20 min AI`.
+
+These are workload-based, not a fixed ratio. **Doesn't compress at all**:
+real-device verification, external coordination (vendor email, third-party
+OAuth), migration verification against real user data, anything gated on a
+human looking at it, and long debugging that needs accumulated context about
+this specific setup. For those write `AI: n/a — verification only`.
+
+**Don't sandbag the AI number.** If it's honestly 15 minutes, say 15.
+
+For structuring and costing a delegated verify-then-fix run, use the
+`multi-agent-verification` skill.
+
+## Code Quality
+
+- Check `npx tsc --noEmit` and `npm run lint` after changes. Lint findings are
+  suggestions — follow them when correct; they can be wrong.
+- No placeholder or "coming soon" code — implement the full thing.
+- Format with the project's formatter after editing.
+- **Write tests alongside implementation, not after.** Tests written after the
+  fact confirm what the code does rather than validating correctness.
 
 ## Code Style
 
-- **Respect the existing code style** in any file you edit. Match the file's existing patterns for quotes (single vs double), semicolons, indentation, and naming conventions. Don't reformat or restyle code you didn't change — it creates noisy diffs and obscures the real changes.
-- **Don't `cd` into directories to run commands** — use full paths directly. Avoid `cd some/dir && command`; prefer `command some/dir/file` or pass the path as an argument.
+- **Respect the existing style** in any file you edit — quotes, semicolons,
+  indentation, naming. Don't restyle code you didn't change; it buries the real
+  diff.
+- **Prefer a path argument over `cd`** (`command some/dir/file`). When a tool
+  genuinely needs the directory, keep the `cd` in the *same* invocation — many
+  runners reset the working directory between commands, so a standalone `cd`
+  silently doesn't apply.
 
 ## Secrets & Environment Safety
 
-- NEVER read, display, or commit: `.env`, `.env.local`, `.env.production`, `.env.staging`, or any file containing secrets (API keys, credentials, certificates).
-- **Exception**: `.env.example` files are safe to read and commit — they contain placeholder values, not real secrets.
-- NEVER commit files matching: `*.pem`, `*.key`, `*.crt`, `secrets/`, `credentials/`.
-- When referencing environment variables, describe what they do — never output their values.
-- **Extracting secrets from `.env*`**: never use shell text tools (`grep`/`sed`/`awk`) — use `python3 <<'EOF' ... EOF` (quoted delimiter, NOT `-c`), pass the value to subprocess via `env={**os.environ, "X": v}` (never argv), and regex-redact `postgres(?:ql)?://\S+` from captured stderr before printing. Target tools can echo connection strings in error messages, so `capture_output=True` + redaction is mandatory.
-
-## File Handling
-
-- When the user provides a file or image path (especially relative paths like `~/Desktop/screenshot.png` or `Documents/file.txt`), always use the Read tool to access the file. Don't assume or guess the content — explicitly read it first.
-
-## Dev Server
-
-- Before starting a dev server, always check if one is already running on the expected port. Look up the port in `package.json` scripts (or other config like `vite.config.ts`, `wrangler.toml`), then run `lsof -ti :<port>` to check. If the port is already in use, skip starting the server and use the existing one.
-
-## MCP Server Config
-
-- **Never pin a stdio MCP server to `npx ...@latest`.** Claude Code spawns stdio MCP servers synchronously at session start and blocks the prompt until they come up. The `@latest` dist-tag forces `npx` to hit `registry.npmjs.org` on *every* launch (even when the package is cached) to resolve the tag — so a flaky/slow network hangs the whole session behind it. Pin an exact version (e.g. `@playwright/mcp@0.0.76`) so npx resolves straight from cache with zero network. Bump the pin deliberately (~monthly): `npm view <pkg>@latest version`, then update the version in `~/.claude.json` → `mcpServers.<name>.args`. (Remote claude.ai connectors degrade gracefully on bad network; local stdio spawns are the hard blocker.)
-
-- **Playwright MCP runs *persistent* by default — no `--isolated`** (dropped 2026-06-16). The browser keeps logins/cookies across sessions and downloads behave predictably. Why it was dropped: `--isolated` runs a throwaway in-memory profile, and browser-initiated downloads (e.g. Zedge ringtones) silently landed as GUID-named blobs in an ephemeral `$TMPDIR/playwright-artifacts-*` dir that's wiped on browser close — they never reached `~/Downloads`. **Trade-off:** a persistent profile locks one user-data-dir, so two concurrent sessions both driving Playwright can hit a "profile already in use" error. **Spin up an isolated instance on demand when you need a clean slate** — logged-out/first-run flows, cookie contamination, or browser work in parallel sessions: add `--isolated` back to `~/.claude.json` → `mcpServers.playwright.args` (temporarily, or as a second `playwright-isolated` server entry), then restart the session. Each `--isolated` launch gets its own throwaway profile, so anything you download there is ephemeral — point `--output-dir` at a real folder, or download via `claude-in-chrome` (drives real Chrome → `~/Downloads` with proper filenames) for files you want to keep.
-
-- **`filesystem` MCP server — how to give it access per project** (installed user-scope: `@modelcontextprotocol/server-filesystem`, pinned version in `~/.claude.json` → `mcpServers.filesystem`). The server can ONLY read/write inside its **allowed directories**, set two ways: (1) the command-line path args, and (2) **MCP roots** the client sends at connect-time — and **roots, when provided, completely *replace* the command-line args**. Claude Code answers `roots/list` with **the single directory you launched `claude` from** (per https://code.claude.com/docs/en/mcp.md), so the practical rule is: **the server can touch the directory you started `claude` in, plus everything under it.** To grant access to more in a given session, launch `claude` from a parent dir that covers what you need. The baked-in fallback arg is `~/git` (covers every repo there) and is used only if roots aren't active (e.g. the `claude mcp list` health check). Net effect: any repo under `~/git` is always reachable; a project *outside* it is reachable when launched from there (roots) or by appending its path to `mcpServers.filesystem.args`. **Verify in a fresh session** with the `list_allowed_directories` tool — newly-added MCP servers only load on session restart, and that tool shows exactly what the server resolved (confirms whether roots replaced the fallback).
-
-## Global vs per-project: plugins, MCPs, skills — off-by-default, opt-in per project
-
-**The deciding factor is cost-per-session, and it differs by category:**
-- **Plugins** load into *every* session and cost tokens each time → keep the global core LEAN; opt into the rest per-project.
-- **MCP servers** SPAWN at every session start and *block the prompt* until they're up (a flaky `@latest` can hang the whole session) → global should be NEAR-ZERO; project MCPs live in the repo's config.
-- **Skills** are invoked on-demand; only their one-line descriptions sit in context → cheapest, so general-purpose skills can be global, but a pile of stack-specific ones still bloats every session's context.
-
-**One rule across all three: cheap-and-universal → global; expensive-or-stack-specific → per-project.**
-
-### Plugins
-
-- **Plugins are DISABLED by default globally; each project enables only what it needs.** The global `enabledPlugins` map in `~/.claude/settings.json` keeps a **lean core ON** (loads in *every* session — costs tokens each time) and everything else **OFF**. A project turns on extras in its own `<repo>/.claude/settings.json` → `enabledPlugins` (project scope **overrides** global for that plugin). Keep the global core small; never enable a project-type-specific plugin globally.
-- **Current global core (ON everywhere):** `superpowers`, `claude-md-management`, `context7`, `security-guidance`, `explanatory-output-style`, `chrome-devtools-mcp`. Everything else is `false` globally and opted into per-project.
-- **When starting / first working in a project, look at its stack + services and enable the RELEVANT plugins per-project** (don't enable globally). Quick map: Cloudflare Workers/D1/R2 → `cloudflare`; Neon/Postgres → `neon`; heavy UI / design work → `ui-ux-pro-max`; web a11y → `accessibility-compliance`; backend API framework → `api-scaffolding`; Stripe payments → `stripe`; building on the Agent SDK → `agent-sdk-dev`. (e.g. `shop.sweetrobo.com` enables `cloudflare` + `stripe`; the CRM would enable `neon` instead of `cloudflare`.)
-- **How:** `claude plugin enable <plugin> -s project` / `claude plugin install <plugin>@<marketplace> --scope project`, or edit `<repo>/.claude/settings.json` directly, then **`/reload-plugins`** (or restart) to apply. ⚠ `claude plugin list` / `/doctor` can report stale "enabled in project settings but isn't installed" errors from the *running* session until a reload — verify against the on-disk `enabledPlugins`, not the live list. Editing `~/.claude/settings.json` affects ALL projects, so confirm before flipping global entries.
-- **"Install globally, default off, enable per-project" is the intended pattern** for a stack plugin used in several repos: install at **user scope** (available everywhere), keep it `false` in the global `enabledPlugins` (default off), set it `true` in each relevant repo's `.claude/settings.json`. That's exactly what Cloudflare's plugin wants (see below).
-
-### MCP servers
-
-- **Global MCP servers = minimal.** Each entry in `~/.claude.json` → `mcpServers` spawns at *every* session start and blocks the prompt until ready. Only servers that are lightweight AND useful everywhere belong global.
-- **Global set:** `context7` (docs lookup; pinned to an exact version — NEVER `@latest`, which re-resolves over the network every launch and can hang the session), and `filesystem` (user-scoped, `~/git` fallback root).
-- **Everything stack-specific is per-project** — put it in the repo's own MCP config, not global. Add with `claude mcp add <name> -s project -- <cmd>`. There is **no "installed-globally-but-off, toggle per project"** mode for MCPs (unlike plugins): a global MCP always runs. So per-project config is the only way to avoid paying its startup cost in unrelated sessions.
-- **Playwright / browser automation → per-project.** The official `playwright` PLUGIN wraps Microsoft's `@playwright/mcp` (same source this file's Playwright notes reference) — prefer the plugin (install user-scope, default off, enable per browser-repo) for managed updates and per-project toggling. Use a direct `claude mcp add ... @playwright/mcp@<pinned>` only when you specifically want the persistent-mode / `--output-dir` setup documented above (needed for download-heavy work; isolated mode drops downloads into ephemeral tmp).
-
-### Skills
-
-- **Global skills = general-purpose, cross-project only.** Installed to `~/.claude/skills/` (or symlinked from this repo). Current global set: `get-to-the-point`, `morning`, `pptx`, `xlsx`, `transcribe-audio`, `lottie-animations`.
-- **Project-specific skills live in the repo's `.claude/skills/`** (e.g. a booth-print-preview skill belongs in the photobooth/rotrics repo, not global).
-- **Watch for stack-specific skills that leaked into global** — they load their descriptions into every unrelated session. (Known open case: a set of Cloudflare skills — `cloudflare`, `wrangler`, `durable-objects`, `workers-best-practices`, `web-perf`, `turnstile-spin`, `sandbox-sdk`, `agents-sdk`, `cloudflare-one*` — are currently installed globally and arguably belong per-project; decision deferred.)
-
-### Cloudflare specifically
-
-Cloudflare's `https://developers.cloudflare.com/agent-setup/prompt.md` is **setup guidance** (run-these-commands), not a config object. It installs two things that split differently:
-- **CF Skills / plugin → per-project.** Use the global-install / default-off / enable-per-CF-repo pattern above.
-- **CF MCP servers → per-project only.** They block startup, so never global; add them inside the CF repos. Run the `prompt.md` commands *from within a Cloudflare repo*, not globally.
-
-### Open reconciliation items (as of 2026-07-24)
-
-The live machine is out of sync with this policy in both directions; deferred to a focused session:
-- **Global core plugins not all installed** — only `superpowers` + `frontend-design` are installed; install `claude-md-management`, `context7`, `security-guidance`, `explanatory-output-style`, `chrome-devtools-mcp` at user scope to complete the core.
-- **`frontend-design`** is enabled globally but isn't in the core — decide keep vs per-project.
-- **11 Cloudflare skills are global** (see Skills above) — decide global vs per-project.
-
-## Session Time Tracking
-
-Two complementary timing systems run in parallel:
-
-### claude-timed (PTY wrapper)
-`claude-timed` wraps Claude in a pseudo-terminal and measures typing/agent/idle time at millisecond precision. Data lives in `~/.claude/timings/*.jsonl` (one file per session). On session exit, it auto-calls `session_wrapup.sh` to log a mechanical summary to `~/.claude/time-log.jsonl`. View stats with `claude-timed --stats [today|week|month|all]`.
-
-Forked from [martinambrus/claude_timings_wrapper](https://github.com/martinambrus/claude_timings_wrapper); fork lives at `~/git/claude_timings_wrapper` (npm-linked globally). Phone-home (update checker) has been removed. The `cld` shell function wraps `claude-timed` with a fallback to plain `claude` if the wrapper is unavailable.
-
-### Session hooks (heartbeat + wrapup)
-- **Parallel agent support**: Each agent gets its own session file at `~/.claude/sessions/{session_id}.json`. The heartbeat reads `session_id` from stdin to update the correct file. Wrapup detects overlapping sessions and logs `parallel_with` in the time entry.
-- **Wrapup is automatic — there is NO `/wrapup` command** (the manual slash command was removed). The **Stop + SessionEnd** hooks run `wrapup-enqueue.sh`, which schedules a wrap into `~/.claude/wrapups/queue/{session_id}.json` (Stop → now + 10 min; SessionEnd → now + 30 s; later fires overwrite = debounce). The launchd-driven `wrapup-worker.sh` (WatchPaths on the queue dir + 10-min backstop) then runs `wrapup.sh` per session to generate the AI summary and drain the queue. Don't try to invoke `/wrapup` — it doesn't exist; segments are captured for you.
-- **Weekly report**: Run `bash ~/.claude/hooks/session_report.sh [days]` for a summary with agent-hours, wall time, parallelism ratio, and active sessions.
-- **Symlink caution**: Hook scripts live in `meirpro-dotfiles/claude/hooks/` as real files, symlinked from `~/.claude/hooks/`. Never use `ln -sf` when the target is already a symlink — it follows the chain and overwrites the source. Always `rm` first, then `ln -s`.
-- **External hook scripts** (e.g., `claude_timings_wrapper/hooks/`) are referenced by **full absolute path** in `settings.json`, not copied or symlinked into `~/.claude/hooks/`. This avoids conflicts with the meirpro-dotfiles symlink structure.
-- **Queue drains run on a launchd timer, not SessionStart.** `flush_wrapup_queue.sh` is driven by `pro.meir.cc.flush-wrapup-queue` (30-min interval + RunAtLoad). See `claude/launchd/README.md` for install/verify/uninstall.
-- **macOS TCC daemon stuck in stale state** — symptoms: tools fail with `Working directory "..." no longer exists` even though the dir is fine in the actual shell, *or* `Operation not permitted` reading a perfectly valid file (e.g. `python3 can't open file '~/.claude/hooks/play_audio.py'`). The hook-script symptom is the loud one, but the working-directory-disappearance is the more obvious signal — every tool call returns the same EPERM. The script, paths, chmod, and symlinks are all fine; TCC is just denying syscalls. Fix: kill **all** `tccd` processes (there are typically two — one system, one per-user — both may be stuck):
-
-  ```bash
-  ps -A | grep -i '[t]ccd'   # see what's running (1 or 2 PIDs expected)
-  sudo killall tccd          # kills every tccd, system auto-respawns them
-  ```
-
-  Don't chmod or re-symlink — that's not the problem. After the kill, retry the next tool call; it'll succeed once the new tccd reads permissions cleanly.
-
-## After opening a PR
-
-Use `ghmp <pr-num>` (defined in `meirpro-dotfiles/shell/functions.sh`) to squash-merge a PR and ff-pull the target branch in one shot. Three forms:
-
-```bash
-ghmp 80                                 # current branch
-ghmp 80 staging/partition-done          # named target branch
-ghmp --wait 80 staging/partition-done   # also wait for PR-level CI
-```
-
-**Default behavior is merge-immediately-if-mergeable**, not wait-for-CI. The user explicitly preferred this: the post-merge push to the target branch runs CI anyway (~3 min saved per PR vs. running CI twice). If post-merge CI on the target fails, we revert there.
-
-The function refuses to merge when GitHub reports the PR isn't cleanly mergeable: `CONFLICTING`, `UNKNOWN` (after retries), `MERGED`/`CLOSED`. It retries through transient `gh` 502/503 hiccups. `--wait` adds the old PR-CI-must-succeed safety net for risky branches.
-
-Run `type ghmp` to confirm the function is loaded; if not, source `~/.bashrc`/`~/.zshrc` or open a fresh shell.
-
-### Merging a worktree PR into a fast-moving main (learned 2026-07-02, the "green worktree, red main" trap)
-
-Merging several worktree PRs back-to-back onto a main that gets 20+ commits/day exposed three failure modes. All three: **a worktree's green `npm run verify` only proves the main it FORKED from — never the main it MERGES INTO.**
-
-- **Re-check `origin/main`'s CI is green *immediately before* firing `ghmp`** — not just that your worktree verify passed. Two independent reasons: (a) you may be **stacking onto an already-red main** (observed: I merged #645 ten minutes after an unrelated teammate PR (#657, a warranty fix) turned `subscriptions/service.test.ts` red on main — my three features were clean and none touched that file, but I'd merged onto red without looking); (b) **commits that land during your ~30-min conflict-resolution window aren't in your local verify** — your worktree fetched `origin/main` at the START of resolution, so a PR merged mid-window (like #657) never ran in your green suite. Quick gate before every merge: `gh run list --branch main --workflow "CI + Deploy" --limit 3 --json headSha,conclusion` — if the latest completed run is `failure`, STOP and find out whose commit broke it before adding yours (don't let your merge inherit the blame or bury the real cause). This is the CLAUDE.md "verify green on main before you branch/merge" rule, extended to the *merge* moment, not just the branch moment.
-- **`ghmp` from inside a worktree prints `ghmp: could not checkout main` and skips the local ff-pull** — the squash-merge still succeeds server-side, but your local `main` never advances, which reads as "the merge didn't fully work / got stuck." It didn't. **Confirm the squash by content on `origin/main`, not by local branch state or the spinner**: `git fetch origin main && git show origin/main:<sentinel-file> | grep <sentinel>` (per the repo's rule 12 — squash-merge can silently drop late commits, and PR state `MERGED` alone isn't proof). Then `gh pr view <n> --json state,mergedAt`.
-- **Suite-composition changes execution order.** Merging three big branches added ~250 tests; even without a real regression, a changed vitest file order can expose a latent order-dependency in an *untouched* test (classic shape: `expected "vi.fn()" to be called with arguments` — a mock-state assertion sensitive to what ran before it). Per-worktree green ≠ merged-main green; **CI on the merged `main` is the only oracle for the final combined suite** (this is the repo's own "nested-worktree is edit isolation, not the test oracle" note, one level up: it's true even for a clean full-suite worktree run, because the *combination* is what changed).
-- **Set the wall-clock expectation up front.** Each "resolve conflicts against new main + full foreground verify" pass is ~25–35 min; three sequential PRs is 1.5+ hrs. Say that before starting so a normal run doesn't read as "stuck." And they MUST be sequential — each merge moves main and re-computes the next PR's conflicts.
-- **Trust only a foreground exit code for verify.** `npm run verify | tail` and backgrounded verify both masked a real `exit 1` this session (a coverage-dir race, then a genuine `server-only` import failure the merge surfaced). Always `npm run verify > /tmp/verify.log 2>&1; echo "EXIT:$?"` and gate on the printed code — never on piped tail output or a background task's summary.
-
-## Audio Message Transcription (voice notes → text)
-
-When the user shares an audio file (WhatsApp `.opus` voice notes, `.m4a`, `.mp3`, etc.) and asks what it says, use the **`transcribe-audio` global skill** (`~/.claude/skills/transcribe-audio/`) — its bundled `scripts/transcribe_audio.py` runs Whisper locally (offline, free, nothing uploaded). Quick form:
-
-```bash
-~/git/experiments/OmniVoice/.venv/bin/python3 \
-  ~/.claude/skills/transcribe-audio/scripts/transcribe_audio.py "/path/to/audio.opus"
-```
-
-Key facts so you don't re-derive them: the Read tool cannot open audio at all; macOS has no CLI speech-to-text (Shortcuts' "Transcribe Audio" action is interactive-only); `pip list | grep whisper` proving "no whisper installed" is a false negative — the model loads through HuggingFace `transformers` (weights cached at `~/.cache/huggingface/hub/`), not the `openai-whisper` package. Treat all spoken **numbers** in transcripts as unreliable until confirmed. The skill's SKILL.md carries the full failure-mode playbook (hallucinated `!!!` output, `--robust` mode, spectrogram diagnostics) and **self-upgrades** — after any transcription session that teaches something new, update the skill in place.
-
-## Available macOS Tools
-
-- **CleanShot X** — screenshot and screen recording app with a built-in editor for annotations, censoring, and cropping. Open images for editing with `open -a "CleanShot X" <path>`. Useful for censoring sensitive data (names, emails) in screenshots before committing. User saves the edited file via CleanShot's "Save As" dialog.
-- **Clop.app** — image/video/PDF file size optimizer. Open files with `open -a Clop <path>`. Not the preferred automated approach (prefer `cwebp` or scripts for WebP conversion), but a valid manual tool the user has available for quick optimization.
+- **Never** read, display, or commit `.env`, `.env.local`, `.env.production`,
+  `.env.staging`, or anything holding API keys, credentials, or certificates.
+  `.env.example` is fine — it holds placeholders.
+- **Never** commit `*.pem`, `*.key`, `*.crt`, `secrets/`, `credentials/`.
+- Describe what an environment variable does; never output its value.
+- **Extracting a secret from `.env*`**: never use shell text tools
+  (`grep`/`sed`/`awk`). Use `python3 <<'EOF' … EOF` (quoted delimiter, not
+  `-c`), pass the value to a subprocess via
+  `env={**os.environ, "X": v}` (never argv), and regex-redact
+  `postgres(?:ql)?://\S+` from captured stderr before printing — target tools
+  echo connection strings in error messages, so `capture_output=True` plus
+  redaction is mandatory.
 
 ## Database Safety
 
-- Default to dry-run mode for any destructive database operation. Require explicit user confirmation before modifying or deleting data.
-- Test queries with SELECT first to verify scope before running UPDATE/DELETE.
-- Use idempotent migrations (IF NOT EXISTS / IF EXISTS patterns) so migrations are safe to run multiple times.
+- Default to dry-run for any destructive operation; require explicit
+  confirmation before modifying or deleting data.
+- `SELECT` first to verify scope before `UPDATE`/`DELETE`.
+- Idempotent migrations (`IF NOT EXISTS` / `IF EXISTS`) so they're safe to
+  re-run.
 
-# CLAUDE.md
+## Dev Server
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+Before starting a dev server, check whether one is already running. Find the
+port in `package.json` scripts (or `vite.config.ts`, `wrangler.toml`), then
+`lsof -ti :<port>`. If it's in use, use the existing server.
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+## MCP Server Config
 
-## 1. Think Before Coding
+**Never pin a stdio MCP server to `npx …@latest`.** Claude Code spawns stdio
+servers synchronously at session start and blocks the prompt until they're up.
+The `@latest` dist-tag forces `npx` to hit the registry on *every* launch even
+when cached, so a slow network hangs the whole session behind it. Pin an exact
+version (e.g. `@playwright/mcp@0.0.76`) and bump deliberately.
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+## Global vs per-project: plugins, MCPs, skills
 
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+**Cheap-and-universal → global; expensive-or-stack-specific → per-project.**
+The cost differs by category:
 
-## 2. Simplicity First
+- **Plugins** load into every session and cost tokens each time → keep the
+  global core lean, opt into the rest per-project.
+- **MCP servers** spawn at every session start and *block the prompt* → global
+  should be near-zero. There is **no** installed-globally-but-off mode for MCPs
+  (unlike plugins): a global MCP always runs, so per-project config is the only
+  way to avoid paying startup cost in unrelated sessions.
+- **Skills** are invoked on demand; only their one-line descriptions sit in
+  context → cheapest, but a pile of stack-specific ones still bloats every
+  session.
 
-**Minimum code that solves the problem. Nothing speculative.**
+Enable per-project with `claude plugin enable <plugin> -s project` or the
+repo's `.claude/settings.json` → `enabledPlugins` (project scope overrides
+global), then `/reload-plugins`. ⚠ `claude plugin list` and `/doctor` can
+report stale errors from the *running* session until a reload — verify against
+on-disk `enabledPlugins`, not the live list.
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+**"Install globally, default off, enable per-project"** is the intended pattern
+for a stack plugin used in several repos: install at user scope, leave `false`
+in the global `enabledPlugins`, set `true` in each relevant repo.
 
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+## After opening a PR
 
-## 3. Surgical Changes
+`ghmp <pr-num>` (defined in `meirpro-dotfiles/shell/functions.sh`) squash-merges
+a PR and ff-pulls the target branch in one shot:
 
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
+```bash
+ghmp 80                                 # current branch
+ghmp 80 staging/partition-done          # named target
+ghmp --wait 80 staging/partition-done   # also wait for PR-level CI
 ```
 
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+Default is merge-immediately-if-mergeable, not wait-for-CI — the post-merge
+push runs CI anyway (~3 min saved per PR). If post-merge CI fails, revert there.
+It refuses `CONFLICTING`, `UNKNOWN` (after retries), and `MERGED`/`CLOSED`, and
+retries transient `gh` 502/503s.
 
----
+### Merging a worktree PR into a fast-moving main
 
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+The trap, learned 2026-07-02: **a worktree's green verify only proves the main
+it forked from, never the main it merges into.**
+
+- **Re-check `origin/main` is green immediately before firing `ghmp`** — you
+  may be stacking onto an already-red main, and commits landing during your
+  conflict-resolution window were never in your local verify. Gate with
+  `gh run list --branch main --workflow "CI + Deploy" --limit 3 --json headSha,conclusion`.
+  If the latest completed run failed, stop and find out whose commit broke it.
+- **`ghmp` from inside a worktree** prints `could not checkout main` and skips
+  the local ff-pull. The squash still succeeded server-side. Confirm by content
+  on `origin/main`, not by local branch state:
+  `git fetch origin main && git show origin/main:<file> | grep <sentinel>`.
+- **Suite composition changes execution order.** Merging big branches can
+  expose a latent order-dependency in an *untouched* test. CI on the merged
+  main is the only oracle for the combined suite.
+- **Trust only a foreground exit code.** `npm run verify | tail` and
+  backgrounded runs both masked a real `exit 1`. Use
+  `npm run verify > /tmp/verify.log 2>&1; echo "EXIT:$?"` and gate on the code.
+- **Set the expectation up front**: each resolve-and-verify pass is ~25–35 min,
+  and they must be sequential — each merge moves main.
