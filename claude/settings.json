@@ -7,6 +7,12 @@
   "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
+      "Bash(cc --help)",
+      "Bash(cc ping)",
+      "Bash(cc media *)",
+      "Bash(cc task *)",
+      "Bash(cc inbox*)",
+      "Bash(cc tasks*)",
       "mcp__plugin_playwright_playwright__browser_take_screenshot",
       "mcp__plugin_playwright_playwright__browser_snapshot",
       "mcp__plugin_playwright_playwright__browser_console_messages",
