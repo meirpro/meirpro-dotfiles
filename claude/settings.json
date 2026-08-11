@@ -6,6 +6,18 @@
   },
   "includeCoAuthoredBy": false,
   "permissions": {
+    "allow": [
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_console_messages",
+      "mcp__plugin_playwright_playwright__browser_network_requests",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_snapshot",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_screenshot",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_pages",
+      "mcp__plugin_sentry_sentry__get_sentry_resource",
+      "mcp__plugin_sentry_sentry__search_issues",
+      "mcp__rotrics-manual__searchDocumentation"
+    ],
     "deny": [
       "Read(**/.env)",
       "Read(**/.env.local)",
