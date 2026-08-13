@@ -32,7 +32,7 @@ TELEGRAM_MAX = 4096
 # to keep the default in a public repo — and what makes "set it once, globally"
 # possible at all, since GitHub has no account-level Actions variables for
 # personal repos.
-DEFAULT_CHAT_ID = ""
+DEFAULT_CHAT_ID = "-1003413944137"
 
 
 def summary(markdown: str) -> None:
