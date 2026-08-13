@@ -1,0 +1,61 @@
+name: Telegram alert
+description: >
+  Post a CI alert to a Telegram channel. Shared by every project so the format,
+  the escaping and the never-fail-the-build behaviour are fixed in one place.
+
+# WHY A PUBLIC COMPOSITE ACTION. sweetcrm lives in the sweetrobo-internal org
+# and the rest are personal repos; GitHub only shares private reusable
+# workflows/actions WITHIN one owner. A public repo can be called from
+# anywhere, so this is the one implementation both sides can use — a fix here
+# reaches every project at once.
+#
+# Each caller still holds its own TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID
+# secrets; nothing secret lives in this repo.
+
+inputs:
+  chat_id:
+    description: >
+      Override the destination channel. Precedence: this input →
+      TELEGRAM_CHAT_ID secret → the DEFAULT_CHAT_ID baked into send.py. Set it
+      only when a project wants its own channel.
+    required: false
+    default: ""
+  title:
+    description: One-line headline, e.g. "main is RED".
+    required: true
+  body:
+    description: Free text. Untrusted content (commit messages, job names) is fine — it is HTML-escaped.
+    required: false
+    default: ""
+  link:
+    description: URL the message should link to (defaults to this workflow run).
+    required: false
+    default: ""
+  emoji:
+    description: Leading emoji.
+    required: false
+    default: "🟥"
+  dry_run:
+    description: Build the message and print it, send nothing. For testing the wiring.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Send
+      shell: bash
+      env:
+        ALERT_CHAT_ID: ${{ inputs.chat_id }}
+        ALERT_TITLE: ${{ inputs.title }}
+        ALERT_BODY: ${{ inputs.body }}
+        ALERT_LINK: ${{ inputs.link }}
+        ALERT_EMOJI: ${{ inputs.emoji }}
+        ALERT_DRY_RUN: ${{ inputs.dry_run }}
+        ALERT_REPO: ${{ github.repository }}
+        ALERT_REF: ${{ github.ref_name }}
+        ALERT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        ALERT_ACTOR: ${{ github.actor }}
+      # `python3 - <<'PY'` would break: a heredoc inside a composite step is
+      # indented, and Python rejects the leading whitespace. Call the file.
+      run: python3 "$GITHUB_ACTION_PATH/send.py"
