@@ -313,6 +313,16 @@ if [[ $INSTALL_CHOICE =~ ^[23]$ ]]; then
     # works from anywhere the repo is checked out.
     chmod +x "$REPO_DIR/shell/ghmp"
     create_symlink "$REPO_DIR/shell/ghmp" "$HOME/bin/ghmp" "ghmp (~/bin/ghmp)"
+
+    # claude wrapper at ~/bin/claude strips DO_NOT_TRACK for that one process.
+    # The variable is exported globally in shell/.zprofile, and Claude Code's
+    # Remote Control refuses to start with it set (RC gates on feature-flag
+    # evaluation, which counts as tracking). Unsetting it globally would drop
+    # the signal for every other tool that honours the convention. ~/bin
+    # resolves before ~/.local/bin, so this shadows the real binary; anything
+    # that shells out to `claude` (claude-timed, cld) picks it up too.
+    chmod +x "$REPO_DIR/claude/claude-wrapper"
+    create_symlink "$REPO_DIR/claude/claude-wrapper" "$HOME/bin/claude" "claude wrapper (~/bin/claude → claude-wrapper)"
     echo
 
     # Copy template files (don't symlink these - user needs to customize)

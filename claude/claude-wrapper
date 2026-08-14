@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# claude-wrapper — run Claude Code with DO_NOT_TRACK unset, and nothing else.
+#
+# DO_NOT_TRACK=1 is exported globally in shell/.zprofile. Claude Code's Remote
+# Control refuses to start with it set: RC gates on feature-flag evaluation,
+# and the flag service counts as tracking under that variable. Unsetting it
+# globally would drop the signal for every other tool that honours the
+# convention, so instead this wrapper strips it for this one process.
+#
+# Installed as ~/bin/claude, which precedes ~/.local/bin on PATH — same trick
+# as ~/bin/git -> git/safe-git. Because `claude-timed` (and anything else that
+# shells out to `claude`) resolves through PATH, they pick this up too.
+#
+# Note: GUI launches of the Claude desktop app never saw DO_NOT_TRACK at all —
+# shell exports don't reach apps started from Finder or the Dock, and
+# `launchctl getenv DO_NOT_TRACK` is empty. Nothing to do for those.
+#
+# To opt back out entirely: rm ~/bin/claude, and Claude Code will inherit the
+# global DO_NOT_TRACK=1 again (Remote Control will stop working).
+
+set -euo pipefail
+
+# Find the real binary, skipping this wrapper. Hardcoding the search order
+# rather than using `command -v` avoids re-finding ourselves on PATH.
+REAL=""
+for candidate in \
+	"$HOME/.local/bin/claude" \
+	"$HOME/.npm-global/bin/claude" \
+	/opt/homebrew/bin/claude \
+	/usr/local/bin/claude
+do
+	if [[ -x "$candidate" && "$(/usr/bin/stat -f %i "$candidate" 2>/dev/null)" != "$(/usr/bin/stat -f %i "$0" 2>/dev/null)" ]]; then
+		REAL="$candidate"
+		break
+	fi
+done
+
+if [[ -z "$REAL" ]]; then
+	printf 'claude-wrapper: could not find the real claude binary.\n' >&2
+	printf 'Looked in ~/.local/bin, ~/.npm-global/bin, /opt/homebrew/bin, /usr/local/bin.\n' >&2
+	exit 127
+fi
+
+exec env -u DO_NOT_TRACK "$REAL" "$@"
