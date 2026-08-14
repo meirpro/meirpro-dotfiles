@@ -51,7 +51,8 @@ meirpro-dotfiles/
 │   ├── inventory.sh     # Machine inventory snapshot
 │   ├── bin/             # Small utilities (saytime — speak the time in am/pm)
 │   ├── cron/            # User crontab, version controlled
-│   └── launchd/         # LaunchAgents (DisplayLink no-indicator, disabled autostarts)
+│   ├── displays.md      # External display / dock setup and history
+│   └── launchd/         # LaunchAgents (currently none; disabled autostarts)
 ├── install.sh           # Installation script
 ├── README.md            # This file
 └── SETUP.md             # Machine-specific setup guide
@@ -157,9 +158,16 @@ The script only manages keys it sets itself. Anything changed through System Set
 
 `macos/launchd/` — startup agents that aren't Claude Code related, plus a record of third-party autostarts deliberately turned off. Full detail in [`macos/launchd/README.md`](macos/launchd/README.md).
 
-- **`pro.meir.displaylink`** — starts DisplayLink Manager under launchd rather than its own login item, so it restarts on crash and logs somewhere findable. `verify-displaylink.sh` health-checks it. Needed because the Anker DL7400 dock drives all three displays through DisplayLink. **A stopgap** — the M5 Pro drives 3 external displays natively over one Thunderbolt port, so a TB5 dock removes the need entirely; the README carries the teardown steps and dock options.
-- **Hiding the purple screen-capture indicator: does not work on macOS 26.** The popular `screen`/direct-exec workaround is documented there as a tested dead end, with why — macOS 26 resolves capture to the responsible process and falls back to the binary's code signature, so no launch path escapes attribution. Includes why you should never grant a terminal emulator Screen Recording to work around it.
+- **No agents currently installed.** `pro.meir.displaylink` lived here until the DisplayLink dock was replaced — see [`macos/displays.md`](macos/displays.md).
 - **Logitech G HUB, disabled** — `com.logi.ghub` (tray agent) and `com.logi.ghub.updater` (a `KeepAlive` root daemon). Both booted out and `launchctl disable`d so a G HUB reinstall can't quietly reload them.
+
+### External displays
+
+`macos/displays.md` — how this machine drives three external monitors, and why the previous arrangement was replaced.
+
+- **M5 Pro → Kensington SD5000T5 EQ → 3 displays over one Thunderbolt 5 cable, natively.** No DisplayLink, no driver, no purple screen-capture indicator. The M5 Pro drives 3 external displays per Thunderbolt port; M4 Pro/Max capped at 2, which is the only reason DisplayLink was ever needed.
+- **The port budget** — on a Thunderbolt dock a downstream port is *either* a display *or* a device. Three monitors consume all three, leaving zero USB-C and making the dock's 60W port unusable. Records the USB-C hub workaround and the MST trap (macOS doesn't support it, so dual-HDMI hubs mirror rather than extend).
+- **Hiding the purple screen-capture indicator: does not work on macOS 26.** Kept as a tested dead end — macOS 26 resolves capture to the responsible process and falls back to the binary's code signature, so no launch path escapes attribution. Includes why you should never grant a terminal emulator Screen Recording to work around it.
 
 ### cron
 
