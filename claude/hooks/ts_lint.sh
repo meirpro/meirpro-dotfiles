@@ -57,8 +57,16 @@ fi
 # This ensures @typescript-eslint/parser resolves tsconfig.json from the project root
 relative_path="${file_path#"$project_root"/}"
 
-# Run ESLint from the correct project root using the relative path
-eslint_output=$(cd "$project_root" && timeout 30 npx eslint "$relative_path" --format compact 2>&1)
+# Run ESLint from the correct project root using the relative path.
+#
+# `stylish`, not `compact`: compact was removed from core ESLint (v9), so it now fails with
+# "The compact formatter is no longer part of core ESLint" on every save in every repo that
+# has not installed eslint-formatter-compact locally — and the hook reported that as a lint
+# error, blocking writes on files that were clean. Installing the formatter globally does
+# NOT fix it; ESLint resolves formatters from the project's own node_modules. stylish is
+# built in, so it works everywhere with nothing to install. The hook only echoes this
+# output, so the format is a display choice.
+eslint_output=$(cd "$project_root" && timeout 30 npx eslint "$relative_path" --format stylish 2>&1)
 eslint_exit_code=$?
 
 # If ESLint found errors
