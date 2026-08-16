@@ -243,15 +243,20 @@ unalias cld 2>/dev/null
 
 
 # ─────────────────────────────────────────────────────────────────────
-# ghmp — squash-merge a GitHub PR and fast-forward the local target
-# branch. Refuses to merge when GitHub reports the PR is not cleanly
-# mergeable (conflicts, etc.).
+# ghmp — merge a GitHub PR and fast-forward the local target branch.
+# Refuses to merge when GitHub reports the PR is not cleanly mergeable
+# (conflicts, etc.).
+#
+# Merges with a MERGE COMMIT by default, keeping every commit and its
+# original author. Pass --squash to collapse the branch into one commit.
 #
 # Usage:
-#   ghmp <pr-num>                  # pulls into the current branch
-#   ghmp <pr-num> <local-branch>   # pulls into the named branch
-#   ghmp --wait <pr-num> [branch]  # legacy: also wait for PR-level CI
-#                                  #   to conclude SUCCESS before merging
+#   ghmp <pr-num>                   # pulls into the current branch
+#   ghmp <pr-num> <local-branch>    # pulls into the named branch
+#   ghmp --squash <pr-num>          # collapse to a single commit
+#   ghmp --wait <pr-num> [branch]   # also wait for PR-level CI
+#                                   #   to conclude SUCCESS before merging
+# Flags may be combined and given in any order.
 #
 # Default behavior merges immediately on a green-mergeable PR — saves
 # 3-ish minutes of redundant CI (the post-merge push runs CI again on
@@ -266,15 +271,25 @@ unalias cld 2>/dev/null
 # ─────────────────────────────────────────────────────────────────────
 function ghmp() {
 	local wait_ci=0
-	if [[ "$1" == "--wait" ]]; then
-		wait_ci=1
+	local squash=0
+	while [[ "$1" == --* ]]; do
+		case "$1" in
+			--wait) wait_ci=1 ;;
+			--squash) squash=1 ;;
+			--merge) squash=0 ;;
+			*)
+				echo "ghmp: unknown flag $1" >&2
+				echo "usage: ghmp [--wait] [--squash] <pr-num> [local-branch]" >&2
+				return 64
+				;;
+		esac
 		shift
-	fi
+	done
 	local pr="$1"
 	local branch="${2:-$(git branch --show-current)}"
 
 	if [[ -z "$pr" ]]; then
-		echo "usage: ghmp [--wait] <pr-num> [local-branch]" >&2
+		echo "usage: ghmp [--wait] [--squash] <pr-num> [local-branch]" >&2
 		return 64
 	fi
 	if [[ -z "$branch" ]]; then
@@ -352,9 +367,22 @@ function ghmp() {
 		fi
 	fi
 
-	# 3. Squash-merge.
-	echo "→ merging PR #$pr (squash)"
-	gh pr merge "$pr" --squash || return $?
+	# 3. Merge. Default PRESERVES history (a merge commit); --squash opts
+	# into collapsing the branch to one commit.
+	#
+	# The default flipped 2026-08-16. Squashing is right for a scratch branch
+	# whose intermediate commits are noise, but it was wrong as the DEFAULT:
+	# it discards per-commit reasoning on any branch where the commits were
+	# authored to be read, and it rewrites authorship to the PR author — the
+	# very thing that blocks sweetrobo/crm's deploy gate when you merge
+	# someone else's PR. A merge commit keeps both.
+	if (( squash )); then
+		echo "→ merging PR #$pr (squash)"
+		gh pr merge "$pr" --squash || return $?
+	else
+		echo "→ merging PR #$pr (merge commit, history preserved)"
+		gh pr merge "$pr" --merge || return $?
+	fi
 
 	# 4. Fast-forward the local target branch WITHOUT moving HEAD.
 	#
@@ -362,7 +390,7 @@ function ghmp() {
 	# working tree: HEAD is a shared resource, so switching it yanks every
 	# parallel agent and the user onto another branch mid-edit. safe-git
 	# rule 7 (added 2026-07-21) refuses exactly that, which made every ghmp
-	# run fail its ff-pull — the squash landed server-side but the local
+	# run fail its ff-pull — the merge landed server-side but the local
 	# branch never advanced. The old CLAUDE.md note blaming worktrees for
 	# "could not checkout main" was really this, one layer down.
 	#
@@ -377,7 +405,7 @@ function ghmp() {
 		git log --oneline -3 "$branch"
 	else
 		echo "ghmp: could not fast-forward $branch — it may be checked out in another worktree." >&2
-		echo "  The squash-merge itself succeeded; only the local ref lagged." >&2
+		echo "  The merge itself succeeded; only the local ref lagged." >&2
 		return 1
 	fi
 }

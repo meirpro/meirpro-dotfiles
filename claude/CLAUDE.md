@@ -207,19 +207,29 @@ in the global `enabledPlugins`, set `true` in each relevant repo.
 
 ## After opening a PR
 
-`ghmp <pr-num>` (defined in `meirpro-dotfiles/shell/functions.sh`) squash-merges
-a PR and ff-pulls the target branch in one shot:
+`ghmp <pr-num>` (defined in `meirpro-dotfiles/shell/functions.sh`) merges a PR
+and ff-pulls the target branch in one shot:
 
 ```bash
 ghmp 80                                 # current branch
 ghmp 80 staging/partition-done          # named target
+ghmp --squash 80                        # collapse the branch to one commit
 ghmp --wait 80 staging/partition-done   # also wait for PR-level CI
 ```
 
-Default is merge-immediately-if-mergeable, not wait-for-CI — the post-merge
-push runs CI anyway (~3 min saved per PR). If post-merge CI fails, revert there.
-It refuses `CONFLICTING`, `UNKNOWN` (after retries), and `MERGED`/`CLOSED`, and
-retries transient `gh` 502/503s.
+Flags may be combined and given in any order.
+
+**Merges with a MERGE COMMIT by default** (changed 2026-08-16; it squashed
+before). Squashing is right for a scratch branch whose intermediate commits are
+noise, but as the *default* it silently discarded per-commit reasoning on
+branches whose commits were written to be read, and rewrote authorship to the
+PR author — which is what blocks `sweetrobo/crm`'s deploy gate when you merge
+someone else's PR. Reach for `--squash` deliberately, per branch.
+
+Default is also merge-immediately-if-mergeable, not wait-for-CI — the
+post-merge push runs CI anyway (~3 min saved per PR). If post-merge CI fails,
+revert there. It refuses `CONFLICTING`, `UNKNOWN` (after retries), and
+`MERGED`/`CLOSED`, and retries transient `gh` 502/503s.
 
 ### Merging a worktree PR into a fast-moving main
 
@@ -232,7 +242,7 @@ it forked from, never the main it merges into.**
   `gh run list --branch main --workflow "CI + Deploy" --limit 3 --json headSha,conclusion`.
   If the latest completed run failed, stop and find out whose commit broke it.
 - **`ghmp` from inside a worktree** prints `could not checkout main` and skips
-  the local ff-pull. The squash still succeeded server-side. Confirm by content
+  the local ff-pull. The merge still succeeded server-side. Confirm by content
   on `origin/main`, not by local branch state:
   `git fetch origin main && git show origin/main:<file> | grep <sentinel>`.
 - **Suite composition changes execution order.** Merging big branches can
