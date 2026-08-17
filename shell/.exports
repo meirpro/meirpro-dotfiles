@@ -48,3 +48,9 @@ export BASH_SILENCE_DEPRECATION_WARNING=1;
 # manual download from st.com, not a cask.
 [ -d "/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin" ] && \
 	export STM32_PRG_PATH="/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin";
+
+# mas auto-indexes App Store apps into Spotlight on every run and prints a
+# multi-line warning while doing it, which buries the actual output — noticed
+# while driving `mas` non-interactively to install Xcode. The indexing is a
+# convenience for `mas list`, not a requirement for get/install/lookup.
+export MAS_NO_AUTO_INDEX=1;
