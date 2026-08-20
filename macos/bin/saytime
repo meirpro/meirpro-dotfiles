@@ -44,6 +44,14 @@ fi
 # `say` has no --volume flag. Volume is set with an inline speech command,
 # [[volm N]], which the synthesiser consumes rather than reads aloud. It
 # attenuates relative to system output volume — it cannot exceed it.
+# --- TEMPORARY INSTRUMENTATION (2026-08-20) ---------------------------------
+# Investigating: after the Mac wakes, several announcements fire at once with a
+# non-quarter-hour time. Records every invocation so the next occurrence is
+# evidence rather than recollection. Remove once the cause is confirmed.
+printf '%s pid=%s ppid=%s phrase=%s\n' "$(date '+%F %T')" "$$" "$PPID" "$phrase" \
+    >> "$HOME/Library/Logs/saytime.log"
+# ---------------------------------------------------------------------------
+
 args=()
 [[ -n $VOICE ]] && args+=(-v "$VOICE")
 [[ -n $RATE  ]] && args+=(-r "$RATE")
