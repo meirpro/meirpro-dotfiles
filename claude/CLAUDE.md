@@ -61,6 +61,14 @@ The wrapper catches the above. These have no safety net:
   asked"). When a file is logically complete and stands on its own, commit it.
   If it's one piece of a larger in-progress change, hold it until that unit is
   ready. Never commit parallel-agent WIP or unrelated dirty files.
+- **Do not ask permission to commit finished work — commit it and report the
+  SHA.** "Want me to commit?" is not caution, it is the work left undone; the
+  answer has never once been no, and the question costs a round trip while the
+  tree sits dirty for every parallel agent. Restated by the user 2026-08-19
+  after a verified, fully-tested fix was left uncommitted behind that question.
+  Ask only when a *precondition* of the rule above is genuinely unmet — the
+  change is half a larger unit, or the diff carries files you cannot attribute.
+  Say which, rather than asking the generic question.
 
 ## Regression Ratchet
 
