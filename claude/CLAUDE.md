@@ -110,6 +110,22 @@ module's real exports.
 Don't retrofit a whole lint stack mid-task to add one guard — add the rule now,
 note "formalize into ESLint/CI" as follow-up.
 
+## Times are New York time
+
+Every time you show me — in a message, a commit note, a log line, a report, a
+UI string — is **America/New_York**, and says so when the zone is not obvious
+from context ("4:43 PM ET"). Not UTC, not the server's zone, not the runtime's
+guess.
+
+I read these against my own day. A timestamp in another zone is not a small
+formatting difference: it is silently wrong by a few hours, and nothing on the
+screen admits it. UTC is the usual offender because it is what a server
+defaults to and what `toISOString()` prints.
+
+In code, pass the zone explicitly rather than relying on the runtime's locale —
+a server renders in the server's zone and a browser in the viewer's, so the
+same line reads differently depending on where it ran.
+
 ## Time Estimates — always give both
 
 Whenever you quote a time estimate, give **both** numbers:
