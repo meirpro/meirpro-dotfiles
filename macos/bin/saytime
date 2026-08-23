@@ -3,7 +3,7 @@
 # Speak the current time as a 15-minute passage-of-time reminder.
 #
 # This is a stopgap. The real version is a menu bar app with a settings GUI,
-# a mic/camera guard, and independent volume — see the `quarter` project.
+# a mic/camera guard, and independent volume — see the `belfry` project.
 # Kept because it is dependency-free and survives any rewrite.
 #
 # Not AM/PM: the point is noticing that 15 minutes went by, and which half of
