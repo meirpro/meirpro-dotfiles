@@ -59,6 +59,22 @@
 #      and it was mistaken for a second project). Relative paths are
 #      resolved against the cwd before the check, so `../foo` can't
 #      sneak out. Bypass: `GIT_UNSAFE_BRANCH=1`.
+#  10. Rewriting the commit identity — refused, in all three forms:
+#      `-c user.email=` / `-c user.name=` / `-c author.*` / `-c
+#      committer.*` (any subcommand), `git commit --author=`, and the
+#      GIT_AUTHOR_* / GIT_COMMITTER_* environment variables. This
+#      machine's identity is a GitHub noreply address on purpose, so
+#      the real one never reaches public history; an agent overrode it
+#      on seven commits across two repos on 2026-08-23, one of them
+#      public, and undoing it took a filter-branch + reflog expiry + gc
+#      in both. Bypass: `GIT_UNSAFE_IDENTITY=1`, logged.
+#
+#      Fixing rule 10 also closed a hole that defeated rules 1-9: the
+#      global-flag scanner did not know that `-c` takes its value as a
+#      SEPARATE argument, so it read `user.email=x` as the subcommand,
+#      matched nothing, and passed the whole command through to real
+#      git. `git -c anything=x add .` was allowed. Flags that consume a
+#      following value now advance the scanner past it.
 #
 # Bypass: prefix the command with `GIT_UNSAFE_STAGE=1` to disable the
 # staging rules (1-5), or `GIT_UNSAFE_BRANCH=1` to allow one
@@ -100,6 +116,40 @@ fi
 
 STAGE_TOKEN_TTL=60           # seconds a stage token stays valid (see below)
 
+# Defined up here, not next to the rules, because rule 10 fires during the
+# subcommand scan — before any of the rule sections below exist.
+deny() {
+    # $1 = reason, $2 = explanation, remaining args = original git argv
+    local reason="$1" explain="$2"
+    shift 2
+    cat >&2 <<EOF
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ git safety wrapper REFUSED this command.
+
+ Reason: $reason
+
+$explain
+
+ Bypass (use sparingly):
+   ${BYPASS_VAR:-GIT_UNSAFE_STAGE}=1 git $(printf '%q ' "$@" | sed 's/ $//')
+
+   Note: env-var prefix only applies to the FIRST command. To bypass
+   an \`add && commit\` chain, wrap both in one bash -c:
+     GIT_UNSAFE_STAGE=1 bash -c 'git add <file> && git commit -m "msg"'
+
+   Or use bash -c WITHOUT bypass — the wrapper sees the pipeline in
+   bash's argv and allows the chain natively:
+     bash -c 'git add <file> && git commit -m "msg"'
+
+ Disable wrapper entirely:
+   $REAL_GIT ...   # call real git by full path
+   # or remove ~/bin/git (the symlink) — the rule lives in
+   # $WRAPPER_PATH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EOF
+    exit 64  # EX_USAGE
+}
+
 # ─────────────────────────────────────────────────────────────────
 # --selftest — is the wrapper actually in force?
 # ─────────────────────────────────────────────────────────────────
@@ -137,6 +187,12 @@ if [ "${1:-}" = "--selftest" ]; then
     fi
 
     printf '  rules:     1-3 add form | 4-5 stage token | 6 reset --hard | 7 HEAD moves\n'
+    printf '             8 whole-tree stash | 9 worktree location | 10 commit identity\n'
+
+    # Rule 10 protects a specific value, so show what it is protecting.
+    printf '  identity:  %s <%s>\n' \
+        "$("$REAL_GIT" config user.name  2>/dev/null || echo '<unset>')" \
+        "$("$REAL_GIT" config user.email 2>/dev/null || echo '<unset>')"
     if [ "$fail" -eq 0 ]; then
         printf '  result:    all checks passed\n'
     else
@@ -145,18 +201,97 @@ if [ "${1:-}" = "--selftest" ]; then
     exit "$fail"
 fi
 
-# Detect the subcommand (first non-option arg). Skip global flags like
-# `git -c foo=bar add ...` so the rules still apply.
+# Detect the subcommand (first non-option arg), skipping global flags.
+#
+# CRITICAL: some global flags take their value as a SEPARATE argument, and an
+# earlier version of this scanner didn't know that. It saw `-c`, skipped it as
+# a flag, then read the NEXT arg — `user.email=x` — as the subcommand. That
+# matches nothing in the dispatch below, so the command fell straight through
+# to the real git. Every rule in this file was defeatable by prefixing any
+# `-c anything=x`:
+#
+#   git add .                     -> refused
+#   git -c user.email=x add .     -> ALLOWED, staged everything
+#
+# Verified as a live hole on 2026-08-23. The same trick bypassed `commit -a`,
+# `reset --hard`, branch switches and whole-tree stash. Flags that consume a
+# following value must therefore advance the index past it.
 SUBCMD=""
+IDENTITY_OVERRIDE=""
+
+# Config keys that rewrite who a commit claims to be from. Compared
+# lowercased: git treats config section and key names case-insensitively, so
+# `-c User.Email=x` is the same setting as `-c user.email=x`.
+is_identity_key() {
+    case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+        user.email=*|user.name=*|author.*|committer.*) return 0 ;;
+    esac
+    return 1
+}
+
 i=1
 while [ $i -le $# ]; do
     eval "arg=\${$i}"
     case "$arg" in
-        -*) ;;                  # global flag, keep scanning
+        -c|--config-env)
+            # Value is the NEXT argument — inspect it, then step over it.
+            i=$((i + 1))
+            eval "cval=\${$i:-}"
+            is_identity_key "$cval" && IDENTITY_OVERRIDE="$arg $cval"
+            ;;
+        --config-env=*)
+            is_identity_key "${arg#--config-env=}" && IDENTITY_OVERRIDE="$arg"
+            ;;
+        -c*)
+            # Attached form, e.g. -cuser.email=x
+            is_identity_key "${arg#-c}" && IDENTITY_OVERRIDE="$arg"
+            ;;
+        -C|--git-dir|--work-tree|--namespace|--super-prefix|--attr-source)
+            i=$((i + 1)) ;;     # these also consume a following value
+        -*) ;;                  # value-less global flag, keep scanning
         *) SUBCMD="$arg"; break ;;
     esac
     i=$((i + 1))
 done
+
+# ─────────────────────────────────────────────────────────────────
+# Rule 10: no rewriting commit identity
+# ─────────────────────────────────────────────────────────────────
+# `git -c user.email=... commit` overrides the configured identity for one
+# command, silently and with no trace in the result beyond the commit itself.
+#
+# This machine's git identity is deliberately a GitHub noreply address so that
+# the real address never lands in public history. On 2026-08-23 an agent passed
+# `-c user.email=<real address>` on seven commits across two repos, one of them
+# a PUBLIC dotfiles repo. They were caught before being pushed; rewriting them
+# afterwards cost a filter-branch, a reflog expiry and a gc in both repos.
+#
+# There is no legitimate reason for an agent to override this. If the
+# configured identity is wrong, fix the config — don't override per-command.
+if [ -n "$IDENTITY_OVERRIDE" ] && [ "${GIT_UNSAFE_IDENTITY:-}" = "1" ]; then
+    # Bypassed, but never silently — same logging as the other bypasses.
+    IDLOG="$HOME/.claude/git-bypass.log"
+    mkdir -p "$(dirname "$IDLOG")" 2>/dev/null || true
+    {
+        printf '[%s] GIT_UNSAFE_IDENTITY cwd=%s argv=' "$(date '+%Y-%m-%d %H:%M:%S')" "$(pwd)"
+        for a in "$@"; do printf '%q ' "$a"; done
+        printf '\n'
+    } >> "$IDLOG" 2>/dev/null || true
+    IDENTITY_OVERRIDE=""
+fi
+
+if [ -n "$IDENTITY_OVERRIDE" ]; then
+    BYPASS_VAR="GIT_UNSAFE_IDENTITY"
+    deny "'git $IDENTITY_OVERRIDE' rewrites the commit identity." \
+        "Why: it silently attributes commits to someone other than this machine's configured author. The identity here is a GitHub noreply address on purpose, so a real email can never reach public history. An agent overrode it on seven commits on 2026-08-23; undoing that needed a history rewrite in two repos.
+
+ Configured identity (what you get by NOT overriding):
+   $("$REAL_GIT" config user.name 2>/dev/null || echo '<unset>') <$("$REAL_GIT" config user.email 2>/dev/null || echo '<unset>')>
+
+ Do this instead:
+   git commit -m \"msg\"                      # use the configured identity
+   git config --global user.email <addr>     # if the config itself is wrong" "$@"
+fi
 
 # Only interesting subcommands: add, commit, reset, checkout, switch.
 # Everything else passes through.
@@ -267,38 +402,6 @@ find_stage_token() {
     return 1
 }
 
-deny() {
-    # $1 = reason, $2 = explanation, remaining args = original git argv
-    local reason="$1" explain="$2"
-    shift 2
-    cat >&2 <<EOF
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- git safety wrapper REFUSED this command.
-
- Reason: $reason
-
-$explain
-
- Bypass (use sparingly):
-   ${BYPASS_VAR:-GIT_UNSAFE_STAGE}=1 git $(printf '%q ' "$@" | sed 's/ $//')
-
-   Note: env-var prefix only applies to the FIRST command. To bypass
-   an \`add && commit\` chain, wrap both in one bash -c:
-     GIT_UNSAFE_STAGE=1 bash -c 'git add <file> && git commit -m "msg"'
-
-   Or use bash -c WITHOUT bypass — the wrapper sees the pipeline in
-   bash's argv and allows the chain natively:
-     bash -c 'git add <file> && git commit -m "msg"'
-
- Disable wrapper entirely:
-   $REAL_GIT ...   # call real git by full path
-   # or remove ~/bin/git (the symlink) — the rule lives in
-   # $WRAPPER_PATH
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EOF
-    exit 64  # EX_USAGE
-}
-
 # ─────────────────────────────────────────────────────────────────
 # Rule 1+2+3+4: subcommand == add
 # ─────────────────────────────────────────────────────────────────
@@ -369,8 +472,40 @@ if [ "$SUBCMD" = "commit" ]; then
                 deny "'git commit -a' is forbidden — it's 'git add -A' in disguise." \
                     "Why: -a auto-stages every modified tracked file, exactly the over-staging we banned. Stage by name:
    git add path/to/file1 path/to/file2 && git commit -m \"msg\"" "$@" ;;
+            # Rule 10, second form. `-c user.email=` is caught during the
+            # global-flag scan; --author is commit's own way to do it.
+            --author|--author=*)
+                BYPASS_VAR="GIT_UNSAFE_IDENTITY"
+                deny "'git commit --author' rewrites the commit identity." \
+                    "Why: it attributes the commit to someone other than this machine's configured author. See rule 10 — the same reasoning as '-c user.email='.
+
+ Do this instead:
+   git commit -m \"msg\"     # use the configured identity" "$@" ;;
         esac
     done
+
+    # Rule 10, third form: the environment. git honours these over config, so
+    # exporting one is `-c user.email=` by another route.
+    #
+    # Deliberately scoped to `commit`: filter-branch's --env-filter sets these
+    # legitimately, but it drives `git commit-tree`, which this wrapper never
+    # inspects. Blocking them globally would break history rewrites.
+    if [ "${GIT_UNSAFE_IDENTITY:-}" != "1" ]; then
+        for v in GIT_AUTHOR_EMAIL GIT_AUTHOR_NAME GIT_COMMITTER_EMAIL GIT_COMMITTER_NAME; do
+            eval "vval=\${$v:-}"
+            if [ -n "$vval" ]; then
+                BYPASS_VAR="GIT_UNSAFE_IDENTITY"
+                deny "$v is set — it overrides the configured commit identity." \
+                    "Why: git prefers these environment variables over user.name / user.email, so exporting one rewrites authorship exactly like '-c user.email=' does. See rule 10.
+
+ Currently set:
+   $v=$vval
+
+ Do this instead:
+   unset $v && git commit -m \"msg\"" "$@"
+            fi
+        done
+    fi
 
     # State check, not a text check. A stage token is written by rule 4
     # when `git add` runs; it records the repo and the exact staged set.
