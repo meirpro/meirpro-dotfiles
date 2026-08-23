@@ -101,17 +101,51 @@ Every invocation is recorded to `~/Library/Logs/saytime.log`:
 2026-08-23 00:16:18 pid=80973  SKIP  stale by 78s (max 0s)
 ```
 
-`DONE … after Ns` is deliberate instrumentation for an **unresolved** problem:
-several announcements were heard overlapping on wake, while the log showed
-their invocations minutes apart. That points at `say` blocking on a suspended
-audio device and flushing on wake, rather than at duplicate scheduling — the
-log proves no two invocations ever landed within 90 seconds of each other.
+#### `say` blocks forever on a suspended audio device
 
-**Baseline is 2 seconds** with the output device awake. A `DONE … after 200s`
-line would confirm deferred playback. Until one appears, the overlap guard
-(an atomic `set -o noclobber` lockfile — `flock` doesn't exist on macOS)
-prevents a second announcement while one is still speaking, whatever the
-cause.
+This is the second, separate bug — the one that produced several announcements
+overlapping when the lid opened.
+
+**`say` does not fail when the audio device is asleep. It blocks, indefinitely,
+and plays on wake.** Measured against a 2-second baseline:
+
+```
+09:12:17  DONE  rc=0 after 15137s    ← 4h 12m
+12:15:42  DONE  rc=0 after  8125s    ← 2h 15m
+12:30:54  DONE  rc=0 after    15s
+```
+
+So several utterances accumulate across a long sleep and flush together on
+wake, each announcing the time it was generated. The log ruled out duplicate
+scheduling first: across 132 invocations, no two ever landed within 90 seconds
+of each other.
+
+**A plain lock made this worse.** Adding one so announcements couldn't overlap
+meant a single stuck `say` held it for four hours and silently suppressed 13
+announcements. Rate: 2 blocked runs out of 21 caused those 13 suppressions.
+That is the trap — a lock with no expiry converts a rare transient fault into
+an outage, and the outage is the worse failure, because silence looks exactly
+like working correctly.
+
+Two changes fix it properly:
+
+1. **A watchdog kills `say` past `SAYTIME_TIMEOUT` (30s).** A stuck
+   announcement has nothing useful left to say — by the time the device wakes,
+   its time is long wrong — so it is dropped, not played late. The loop
+   measures wall clock and is itself suspended during sleep, so it fires on
+   wake, bounding the late audio to about one second instead of a full
+   announcement.
+2. **The lock is takeable.** If the holder is dead, or has held it longer than
+   `SAYTIME_TIMEOUT`, it is reclaimed — killing the holder if necessary. A
+   stuck process can now cost at most one announcement instead of four hours
+   of them.
+
+```
+KILL  ran 31s > 30s limit — dropped "It's 2:15" (usually a suspended audio device)
+LOCK  holder 35189 stuck for 7222s — killing it and reclaiming
+LOCK  holder 999999 is gone — reclaiming
+SKIP  pid 35189 still speaking (4s) — would have said "It's 2:30"
+```
 
 #### This is a stopgap
 

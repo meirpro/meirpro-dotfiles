@@ -21,6 +21,8 @@
 #   SAYTIME_RATE     words per minute, default = voice's own rate.
 #   SAYTIME_MAX_LAG  seconds past the quarter mark before an announcement is
 #                    dropped as stale. Default 90. See "Staleness" below.
+#   SAYTIME_TIMEOUT  seconds before a blocked `say` is killed, and before a
+#                    held lock is considered stuck. Default 30.
 #
 # Driven by cron every 15 minutes — see macos/cron/README.md.
 
@@ -30,6 +32,7 @@ VOLUME="${SAYTIME_VOLUME:-0.35}"
 VOICE="${SAYTIME_VOICE:-}"
 RATE="${SAYTIME_RATE:-}"
 MAX_LAG="${SAYTIME_MAX_LAG:-90}"
+TIMEOUT="${SAYTIME_TIMEOUT:-30}"
 LOG="$HOME/Library/Logs/saytime.log"
 
 log() { printf '%s pid=%-6s %s\n' "$(date '+%F %T')" "$$" "$1" >> "$LOG"; }
@@ -70,17 +73,42 @@ if [[ ${1:-} != "--force" ]] && (( lag > MAX_LAG )); then
     exit 0
 fi
 
-# --- Overlap guard ---------------------------------------------------------
-# Under investigation: several announcements were heard overlapping on wake,
-# while the log showed their invocations minutes apart — consistent with `say`
-# blocking on a suspended audio device and flushing on wake. The lock makes a
-# second announcement impossible while one is still speaking, whatever the
-# cause. `set -o noclobber` gives an atomic create-if-absent with no extra
-# dependency; flock(1) does not exist on macOS.
+# --- Overlap guard, with stale-lock recovery -------------------------------
+# `say` BLOCKS INDEFINITELY when the audio output device is suspended by system
+# sleep. It does not fail and does not give up — it sits there and finally
+# plays on wake. Measured here: two runs returned after 15137s (4h12m) and
+# 8125s (2h15m), against a 2s baseline with the device awake. That is the
+# overlapping-announcements bug: several utterances queue up across a sleep and
+# flush together when the lid opens.
+#
+# A plain lock made this worse, not better. One stuck `say` held it for four
+# hours and silently suppressed 13 announcements — a rare fault (2 of 21 runs)
+# turned into an outage, which is a worse failure than the one it fixed.
+#
+# So the lock must be takeable: steal it if the holder is dead, or has held it
+# longer than any legitimate announcement could take. `set -o noclobber` is the
+# atomic create-if-absent — flock(1) does not exist on macOS.
 LOCK="${TMPDIR:-/tmp}/saytime.lock"
-if ! (set -o noclobber; echo $$ > "$LOCK") 2>/dev/null; then
-    log "SKIP  another instance still speaking (pid $(cat "$LOCK" 2>/dev/null)) — would have said \"$phrase\""
-    exit 0
+
+take_lock() { (set -o noclobber; echo $$ > "$LOCK") 2>/dev/null; }
+
+if ! take_lock; then
+    holder=$(cat "$LOCK" 2>/dev/null)
+    held=$(( $(date +%s) - $(stat -f %m "$LOCK" 2>/dev/null || echo 0) ))
+
+    if [[ -z $holder ]] || ! kill -0 "$holder" 2>/dev/null; then
+        log "LOCK  holder ${holder:-?} is gone — reclaiming"
+        rm -f "$LOCK"
+    elif (( held > TIMEOUT )); then
+        log "LOCK  holder $holder stuck for ${held}s — killing it and reclaiming"
+        kill -9 "$holder" 2>/dev/null
+        rm -f "$LOCK"
+    else
+        log "SKIP  pid $holder still speaking (${held}s) — would have said \"$phrase\""
+        exit 0
+    fi
+
+    take_lock || { log "SKIP  could not take lock — would have said \"$phrase\""; exit 0; }
 fi
 trap 'rm -f "$LOCK"' EXIT INT TERM
 
@@ -88,20 +116,46 @@ args=()
 [[ -n $VOICE ]] && args+=(-v "$VOICE")
 [[ -n $RATE  ]] && args+=(-r "$RATE")
 
-# --- INSTRUMENTATION (2026-08-23) ------------------------------------------
-# Times how long `say` takes to return. If audio is being deferred across
-# sleep, duration will be minutes rather than the ~1s it takes when the output
-# device is awake — which is the evidence needed to confirm or kill that
-# theory. Remove once resolved. Note this replaces `exec say`, deliberately:
-# exec would replace the shell and neither the timing nor the lock cleanup
-# would run.
+# --- Speak, under a watchdog -----------------------------------------------
+# `say` is run in the background and killed if it outlives TIMEOUT, so a
+# suspended audio device can never leave one parked for hours. An announcement
+# takes 2s awake; anything past 30s is stuck, and a stuck one has nothing
+# useful left to say — by the time the device wakes, its time is long wrong.
+#
+# The watchdog measures WALL CLOCK, not elapsed sleep: this loop is suspended
+# along with everything else during system sleep, so the deadline is only
+# noticed on wake. That is exactly when it needs to fire, and it bounds the
+# late audio to roughly one second rather than a full announcement.
+#
+# Not `exec say`: exec would replace this shell, so neither the watchdog, the
+# timing, nor the lock cleanup would ever run.
 started=$(date +%s)
 log "SPEAK lag=${lag}s \"$phrase\""
 
 # ${args[@]+"${args[@]}"} not "${args[@]}": macOS ships bash 3.2, where an
-# empty array expansion counts as unset and trips `set -u`. Bash 4.4+ fixed it.
-/usr/bin/say ${args[@]+"${args[@]}"} "[[volm ${VOLUME}]] ${phrase}"
-rc=$?
+# empty array expansion counts as unset and trips `set -u`.
+/usr/bin/say ${args[@]+"${args[@]}"} "[[volm ${VOLUME}]] ${phrase}" &
+say_pid=$!
 
-log "DONE  rc=${rc} after $(( $(date +%s) - started ))s"
+killed=0
+deadline=$(( started + TIMEOUT ))
+while kill -0 "$say_pid" 2>/dev/null; do
+    if (( $(date +%s) >= deadline )); then
+        kill -9 "$say_pid" 2>/dev/null
+        killed=1
+        break
+    fi
+    sleep 1
+done
+
+wait "$say_pid" 2>/dev/null
+rc=$?
+elapsed=$(( $(date +%s) - started ))
+
+if (( killed )); then
+    log "KILL  ran ${elapsed}s > ${TIMEOUT}s limit — dropped \"$phrase\" (usually a suspended audio device)"
+    exit 0
+fi
+
+log "DONE  rc=${rc} after ${elapsed}s"
 exit $rc
