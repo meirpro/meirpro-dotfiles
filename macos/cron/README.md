@@ -45,6 +45,74 @@ Environment variables, set in the crontab above:
 of reading it aloud. This is the only way to attenuate `say` without changing
 system output volume for everything else.
 
+#### cron replays jobs missed during short sleeps — and that broke this
+
+**If the machine sleeps through a quarter mark and wakes within 10 minutes,
+cron runs the missed job on wake.** `date` inside the script then returns the
+*wake* time, so the 5:00 announcement fires at 5:03 and says "It's 5:03" —
+late, and wrong about the thing it exists to tell you.
+
+This is not the documented behavior you'll find by skimming `cron.c`. The
+`±600` second branch there is the **resync** path taken on *large* jumps, and
+its comment ("we have the chance of missing a minute's jobs completely") reads
+like cron never replays. For gaps **under** 600 seconds it does: it advances
+its internal clock a minute at a time and runs each missed minute's jobs.
+
+Measured on this machine over 132 logged invocations:
+
+| | |
+|---|---|
+| Fired within 5s of a quarter mark | 73 |
+| Fired late | **59 (45%)** |
+| Maximum lag observed | **571s** — just under cron's 600s cutoff |
+
+The 571s ceiling is what identified the mechanism; nothing else would stop
+neatly below 600.
+
+**Why it hits this machine so hard:** `pmset` shows `sleep 1` on battery — idle
+system sleep after one minute, with Power Nap on. Nearly 2,900 sleep/wake
+cycles since boot. Short naps across quarter marks are constant here, where on
+a Mac idling at the default 10+ minutes this would be rare.
+
+**The fix is a staleness check, not a scheduler change.** `saytime` computes how
+far past the quarter mark it is and exits silently beyond `SAYTIME_MAX_LAG`
+(default 90s), logging what it would have said. A replayed announcement is
+dropped rather than spoken wrong.
+
+```bash
+SAYTIME_MAX_LAG=0 saytime          # always skips — proves the guard
+saytime --force                    # speak regardless of lag
+```
+
+Moving to a LaunchAgent would *also* avoid the replay, but launchd's
+`StartCalendarInterval` has the same underlying problem in a different shape:
+it coalesces missed runs into one firing at wake time, which is still not the
+boundary. The staleness check is needed either way, so the scheduler doesn't
+have to change.
+
+#### Log
+
+Every invocation is recorded to `~/Library/Logs/saytime.log`:
+
+```
+2026-08-23 00:16:18 pid=80979  SPEAK lag=78s "It's 12:16"
+2026-08-23 00:16:20 pid=80979  DONE  rc=0 after 2s
+2026-08-23 00:16:22 pid=81287  SKIP  another instance still speaking
+2026-08-23 00:16:18 pid=80973  SKIP  stale by 78s (max 0s)
+```
+
+`DONE … after Ns` is deliberate instrumentation for an **unresolved** problem:
+several announcements were heard overlapping on wake, while the log showed
+their invocations minutes apart. That points at `say` blocking on a suspended
+audio device and flushing on wake, rather than at duplicate scheduling — the
+log proves no two invocations ever landed within 90 seconds of each other.
+
+**Baseline is 2 seconds** with the output device awake. A `DONE … after 200s`
+line would confirm deferred playback. Until one appears, the overlap guard
+(an atomic `set -o noclobber` lockfile — `flock` doesn't exist on macOS)
+prevents a second announcement while one is still speaking, whatever the
+cause.
+
 #### This is a stopgap
 
 It has no idea whether you're on a call — it will happily talk over a meeting.

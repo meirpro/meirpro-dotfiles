@@ -13,11 +13,14 @@
 #
 # Usage:  saytime            # speaks "It's 2:15"
 #         saytime --print    # print instead of speak (testing / cron debug)
+#         saytime --force    # speak even if past the staleness window
 #
-# Config, via environment (cron sets none of these; edit the crontab to):
+# Config, via environment (set in the crontab):
 #   SAYTIME_VOLUME   0.0–1.0, default 0.35. Relative to system output volume.
 #   SAYTIME_VOICE    a voice name from `say -v ?`, default = system voice.
 #   SAYTIME_RATE     words per minute, default = voice's own rate.
+#   SAYTIME_MAX_LAG  seconds past the quarter mark before an announcement is
+#                    dropped as stale. Default 90. See "Staleness" below.
 #
 # Driven by cron every 15 minutes — see macos/cron/README.md.
 
@@ -26,6 +29,10 @@ set -uo pipefail
 VOLUME="${SAYTIME_VOLUME:-0.35}"
 VOICE="${SAYTIME_VOICE:-}"
 RATE="${SAYTIME_RATE:-}"
+MAX_LAG="${SAYTIME_MAX_LAG:-90}"
+LOG="$HOME/Library/Logs/saytime.log"
+
+log() { printf '%s pid=%-6s %s\n' "$(date '+%F %T')" "$$" "$1" >> "$LOG"; }
 
 # %-I strips the leading zero (2, not 02) and gives 12-hour regardless of the
 # 24-hour menu bar clock. On the hour, say "2 o'clock" rather than "2:00",
@@ -41,21 +48,60 @@ if [[ ${1:-} == "--print" ]]; then
     exit 0
 fi
 
-# `say` has no --volume flag. Volume is set with an inline speech command,
-# [[volm N]], which the synthesiser consumes rather than reads aloud. It
-# attenuates relative to system output volume — it cannot exceed it.
-# --- TEMPORARY INSTRUMENTATION (2026-08-20) ---------------------------------
-# Investigating: after the Mac wakes, several announcements fire at once with a
-# non-quarter-hour time. Records every invocation so the next occurrence is
-# evidence rather than recollection. Remove once the cause is confirmed.
-printf '%s pid=%s ppid=%s phrase=%s\n' "$(date '+%F %T')" "$$" "$PPID" "$phrase" \
-    >> "$HOME/Library/Logs/saytime.log"
-# ---------------------------------------------------------------------------
+# --- Staleness -------------------------------------------------------------
+# cron REPLAYS jobs missed while the machine was asleep, as long as the gap is
+# under 600 seconds. It advances its internal clock minute by minute and runs
+# each missed minute's jobs on wake. `date` inside this script then returns the
+# *wake* time, not the boundary — so a 5:00 job replayed at 5:03 announced
+# "It's 5:03", which is both late and wrong.
+#
+# Measured over 132 logged invocations on this machine: 59 of them (45%) fired
+# late, with a maximum lag of 571s — just under cron's 600s cutoff, which is
+# what identified the mechanism. `sleep 1` on battery makes short naps constant
+# here, so quarter marks are missed and replayed all day.
+#
+# Fix: drop the announcement if we are more than MAX_LAG seconds past the mark.
+# Computed from local minute/second rather than `epoch % 900`, because that
+# arithmetic only holds in timezones whose UTC offset is a whole hour.
+lag=$(( (10#$(date '+%M') % 15) * 60 + 10#$(date '+%S') ))
+
+if [[ ${1:-} != "--force" ]] && (( lag > MAX_LAG )); then
+    log "SKIP  stale by ${lag}s (max ${MAX_LAG}s) — would have said \"$phrase\""
+    exit 0
+fi
+
+# --- Overlap guard ---------------------------------------------------------
+# Under investigation: several announcements were heard overlapping on wake,
+# while the log showed their invocations minutes apart — consistent with `say`
+# blocking on a suspended audio device and flushing on wake. The lock makes a
+# second announcement impossible while one is still speaking, whatever the
+# cause. `set -o noclobber` gives an atomic create-if-absent with no extra
+# dependency; flock(1) does not exist on macOS.
+LOCK="${TMPDIR:-/tmp}/saytime.lock"
+if ! (set -o noclobber; echo $$ > "$LOCK") 2>/dev/null; then
+    log "SKIP  another instance still speaking (pid $(cat "$LOCK" 2>/dev/null)) — would have said \"$phrase\""
+    exit 0
+fi
+trap 'rm -f "$LOCK"' EXIT INT TERM
 
 args=()
 [[ -n $VOICE ]] && args+=(-v "$VOICE")
 [[ -n $RATE  ]] && args+=(-r "$RATE")
 
+# --- INSTRUMENTATION (2026-08-23) ------------------------------------------
+# Times how long `say` takes to return. If audio is being deferred across
+# sleep, duration will be minutes rather than the ~1s it takes when the output
+# device is awake — which is the evidence needed to confirm or kill that
+# theory. Remove once resolved. Note this replaces `exec say`, deliberately:
+# exec would replace the shell and neither the timing nor the lock cleanup
+# would run.
+started=$(date +%s)
+log "SPEAK lag=${lag}s \"$phrase\""
+
 # ${args[@]+"${args[@]}"} not "${args[@]}": macOS ships bash 3.2, where an
 # empty array expansion counts as unset and trips `set -u`. Bash 4.4+ fixed it.
-exec /usr/bin/say ${args[@]+"${args[@]}"} "[[volm ${VOLUME}]] ${phrase}"
+/usr/bin/say ${args[@]+"${args[@]}"} "[[volm ${VOLUME}]] ${phrase}"
+rc=$?
+
+log "DONE  rc=${rc} after $(( $(date +%s) - started ))s"
+exit $rc
