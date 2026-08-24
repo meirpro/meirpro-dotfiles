@@ -32,6 +32,19 @@
 #      shell is ALLOWED if the index is untouched in between, because
 #      that is precisely the invariant the "same command" rule was a
 #      proxy for.
+#  11. `git commit` with NO pathspec, when the index holds files this
+#      shell's `git add` did not name — refused. Rules 4-5 model a
+#      parallel agent staging BETWEEN your add and your commit; they
+#      are blind to work that was already staged when you arrived,
+#      because the index records no authorship. `git commit` commits
+#      the INDEX, and the index is the one shared resource these rules
+#      did not attribute. Shipped 2026-08-23: a session staged two
+#      files, committed, and swept in fourteen deleted files another
+#      session had staged earlier — every earlier rule passed.
+#      The token now also records the paths YOUR add named, so the
+#      commit can tell them apart. `git commit <paths>` stays allowed:
+#      it ignores the rest of the index by construction.
+#
 #   6. `git reset --hard` with uncommitted changes in the working tree
 #      or index — refused, so one session's "fast-forward to origin"
 #      can't discard another's in-flight WIP (wiped 300+ lines on
@@ -188,6 +201,7 @@ if [ "${1:-}" = "--selftest" ]; then
 
     printf '  rules:     1-3 add form | 4-5 stage token | 6 reset --hard | 7 HEAD moves\n'
     printf '             8 whole-tree stash | 9 worktree location | 10 commit identity\n'
+    printf '             11 commit ships only what you staged\n'
 
     # Rule 10 protects a specific value, so show what it is protecting.
     printf '  identity:  %s <%s>\n' \
@@ -406,6 +420,15 @@ find_stage_token() {
 # Rule 1+2+3+4: subcommand == add
 # ─────────────────────────────────────────────────────────────────
 if [ "$SUBCMD" = "add" ]; then
+    # Snapshot argv by index: `mine_set` below rebinds "$@" to build a
+    # pathspec list, so the original arguments have to survive that.
+    ARGC=$#
+    i=1
+    for a in "$@"; do
+        eval "ARGV_$i=\$a"
+        i=$((i + 1))
+    done
+
     # Walk add's args looking for forbidden tokens.
     saw_files=0
     j=1
@@ -444,12 +467,34 @@ if [ "$SUBCMD" = "add" ]; then
     fi
     [ "$add_status" -eq 0 ] || exit "$add_status"
 
+    # Which staged entries did THIS add name? Resolved through git's own
+    # pathspec matching (a directory argument expands to its files, exactly
+    # as the add did), so rule 11 compares like with like. Recorded as well
+    # as the whole index — rule 5 needs the index, rule 11 needs the intent,
+    # and they are different questions.
+    mine_set() {
+        j=1
+        set --
+        while [ $j -le $ARGC ]; do
+            eval "a=\${ARGV_$j}"
+            case "$a" in
+                add|-*) ;;
+                *) set -- "$@" "$a" ;;
+            esac
+            j=$((j + 1))
+        done
+        [ $# -gt 0 ] || return 0
+        "$REAL_GIT" diff --cached --name-only -- "$@" 2>/dev/null | LC_ALL=C sort
+    }
+
     tok="$(stage_token_path "$PPID")"
     mkdir -p "$(dirname "$tok")" 2>/dev/null || true
     (
         umask 077
         {
             printf 'repo=%s\n' "$(repo_ident)"
+            printf -- '--mine--\n'
+            mine_set
             printf -- '--\n'
             staged_set
         } > "$tok"
@@ -543,6 +588,49 @@ $(printf '%s' "$tok_files" | sed 's/^/   /')
 
  Staged now:
 $(printf '%s' "$now_files" | sed 's/^/   /')" "$@"
+    fi
+
+    # ── Rule 11: don't ship what you didn't stage ────────────────
+    # Only for a commit with NO pathspec. `git commit <paths>` commits
+    # those paths from the working tree and ignores the rest of the
+    # index by construction, which is the documented repair for this
+    # very situation.
+    commit_has_pathspec=0
+    seen_ddash=0
+    skip_next=0
+    for a in "$@"; do
+        if [ "$skip_next" -eq 1 ]; then skip_next=0; continue; fi
+        if [ "$seen_ddash" -eq 1 ]; then commit_has_pathspec=1; break; fi
+        case "$a" in
+            commit) ;;
+            --) seen_ddash=1 ;;
+            # Options that take a SEPARATE value — without this the value
+            # ("msg") reads as a pathspec and rule 11 goes quiet.
+            -m|-F|-c|-C|--message|--file|--reuse-message|--reedit-message|--author|--date|--cleanup|--gpg-sign|-S)
+                skip_next=1 ;;
+            -*) ;;
+            *) commit_has_pathspec=1; break ;;
+        esac
+    done
+
+    if [ "$commit_has_pathspec" -eq 0 ]; then
+        tok_mine="$(sed -n '/^--mine--$/,/^--$/p' "$tok" 2>/dev/null \
+            | sed '1d;$d')"
+        # Anything staged that this shell's add did not name.
+        theirs="$(printf '%s\n' "$now_files" \
+            | LC_ALL=C comm -23 - <(printf '%s\n' "$tok_mine") 2>/dev/null \
+            | sed '/^$/d')"
+        if [ -n "$theirs" ]; then
+            rm -f "$tok" 2>/dev/null || true
+            deny "the index holds files your 'git add' did not name." \
+                "Why: 'git commit' commits the whole INDEX, not the paths you staged — so another session's already-staged work rides along in your commit. Rules 4-5 only catch a stage that lands BETWEEN your add and your commit; this was staged before you arrived, and the index records no authorship. (Shipped 2026-08-23: fourteen files another session had staged went out inside an unrelated commit.)
+
+ Not yours, currently staged:
+$(printf '%s' "$theirs" | sed 's/^/   /')
+
+ Commit only yours — a pathspec ignores the rest of the index:
+   git add path/to/file1 path/to/file2 && git commit path/to/file1 path/to/file2 -m \"msg\"" "$@"
+        fi
     fi
 
     # Single use — a token must never authorise a second commit.
