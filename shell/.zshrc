@@ -32,10 +32,35 @@ export PATH="$HOME/bin:$PATH"
 # text-match the parent shell's argv. Those rules now verify index state
 # via a stage token instead (2026-07-23), so nothing reads the capture
 # file. Sourcing it would only add a DEBUG trap / preexec hook for no gain.
-export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
+# Node from nodejs.org, NOT Homebrew — because of Little Snitch.
+#
+# Homebrew signs node ad-hoc: `Signature=adhoc`, `TeamIdentifier=not set`, so
+# the code hash IS the identity. Every upgrade — and every REVISION rebuild,
+# which keeps the version and only relinks a dependency — mints a new identity,
+# voids the existing rule, and re-prompts. An unanswered prompt is a deny, and
+# then node cannot open a socket at all: `wrangler deploy` fails with EBADF
+# while curl on the same URL works, which reads as a credential bug and is not
+# one. Pinning the node VERSION does not help; the revision rebuild does it too.
+#
+# The official builds carry a real Developer ID:
+#   Authority=Developer ID Application: Node.js Foundation (HX7739G8FX)
+# and every release shares that Team ID, so a rule survives upgrades.
+#
+# ~/.local/node is a symlink to the versioned directory — point it at a new one
+# to upgrade, and this line never changes:
+#   V=v24.19.0; curl -fsSLO https://nodejs.org/dist/$V/node-$V-darwin-arm64.tar.gz
+#   curl -fsSL https://nodejs.org/dist/$V/SHASUMS256.txt | grep " node-$V-darwin-arm64.tar.gz$" | shasum -a 256 -c -
+#   tar -xzf node-$V-darwin-arm64.tar.gz -C ~/.local
+#   ln -sfn ~/.local/node-$V-darwin-arm64 ~/.local/node
+export PATH="$HOME/.local/node/bin:$PATH"
 
 # fzf: Ctrl-R history search, Ctrl-T file insert, Alt-C cd. `fzf --zsh`
 # emits the keybindings + completion inline (fzf >= 0.48), which replaces
 # the old ~/.fzf.zsh that install.sh used to write into $HOME — same reason
 # .aliases is sourced above rather than appended.
 command -v fzf >/dev/null && source <(fzf --zsh)
+export PATH=$PATH:$HOME/.maestro/bin
+
+# Android SDK — adb / emulator on PATH (JAVA_HOME + ANDROID_HOME for gradle)
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export PATH="$PATH:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator"
