@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+#
+# Write a Windows 10/11 install ISO to a USB stick, from macOS.
+#
+#   win-usb <path-to.iso> <disk-identifier>     e.g. win-usb ~/Downloads/win11.iso disk7
+#   win-usb --list                              show candidate external disks
+#
+# Produces an MBR + FAT32 stick that boots UEFI firmware (any Dell/HP/Lenovo
+# new enough to run Windows 11 — TPM 2.0 means 8th-gen Intel or later, which
+# is always UEFI). Splits the install image when it exceeds FAT32's file cap.
+#
+# ---------------------------------------------------------------------------
+# WHY NOT THE OBVIOUS SHORTCUTS
+# ---------------------------------------------------------------------------
+#
+# Don't `dd` the ISO. Windows ISOs are UDF; a raw block copy yields a
+# read-only UDF stick that many firmwares won't enumerate as bootable, and
+# you can't add storage/NIC drivers to it afterwards. File-copy onto a real
+# FAT32 partition is the reliable path.
+#
+# Don't use exFAT to dodge the split. It is tempting — one partition, no
+# splitting, done. But the UEFI spec only mandates FAT12/16/32 for the boot
+# volume; exFAT support is vendor-optional and plenty of firmwares silently
+# won't list the stick at all. FAT32 + split is universally bootable.
+#
+# Legacy-BIOS boot is NOT set up by this script and can't be, from macOS:
+# it needs `bootsect.exe /nt60`, which only runs on Windows. Not a real
+# limitation — see the UEFI note above.
+#
+# ---------------------------------------------------------------------------
+# THE FIVE THINGS THAT COST TIME TO REDISCOVER
+# ---------------------------------------------------------------------------
+#
+# 1. The ISO mounts as `udf`, not `cd9660`. A cd9660 mount succeeds and shows
+#    an EMPTY directory — no error, just nothing. Mounting udf also triggers a
+#    one-time `kmutil load` of udf.kext.
+#
+# 2. Modern install.wim is SOLID (LZMS), and solid WIMs cannot be split:
+#    "[ERROR] Splitting of WIM containing solid resources is not supported."
+#    Fix is to re-export non-solid first. That costs a full decompress +
+#    recompress of ~21 GB (~3 min on an M-series, 18 threads) and inflates the
+#    file ~30% (4.55 GB -> 5.98 GB observed), because solid mode dedupes
+#    shared binaries across all editions and non-solid can't.
+#
+# 3. `boot.catalog` ALWAYS fails to copy with "Permission denied". It is an
+#    ISO9660 El Torito artifact, meaningless on a USB stick. Ignore it.
+#
+# 4. The first eject gets dissented by `mds_stores` — Spotlight starts
+#    indexing the volume you just wrote. sync, wait, retry. Do NOT force-
+#    unmount a volume you just wrote 6 GB to.
+#
+# 5. Writing to the stick dominates the wall clock. ~15 min for 6 GB over USB
+#    2.0 vs ~3 min for the re-encode. Optimizing the CPU side is pointless.
+#
+# ---------------------------------------------------------------------------
+# AFTER THE STICK: BOOTING AND SETUP
+# ---------------------------------------------------------------------------
+#
+# Boot menu: tap F12 repeatedly from the moment the vendor logo appears (tap,
+# don't hold). Choose the entry prefixed "UEFI:", not the bare one. If Windows
+# Setup reports no drives found, the BIOS is in Dell's factory "RAID On" SATA
+# mode — switch to AHCI in F2 Setup.
+#
+# Local account without a Microsoft account: at "Let's connect you to a
+# network", press Shift+F10 (opens a SYSTEM-level cmd) and run:
+#
+#     start ms-cxh:localonly
+#
+# This is the current method and the one to reach for first. The older
+# `oobe\bypassnro` was REMOVED from the ISO during 24H2's life (Insider build
+# 26200.5516, March 2025), so on recent media it just reports "not
+# recognized". ms-cxh:localonly doesn't depend on that file — it invokes the
+# Cloud Experience Host directly — which is why it survives. Registry
+# equivalent if you need the old flow back:
+#
+#     reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE ^
+#       /v BypassNRO /t REG_DWORD /d 1 /f  &&  shutdown /r /t 0
+#
+# Expect Microsoft to close ms-cxh:localonly too. If it stops working, the
+# durable fallback is an unattend.xml on the stick.
+#
+# The USB can be pulled once you reach the blue OOBE screens — by then Setup
+# has rebooted onto the internal SSD and never reads the stick again. Leaving
+# it in risks the machine booting it again and restarting Setup from scratch.
+# Do NOT pull during "Installing Windows - Copying files".
+
+set -euo pipefail
+
+SPLIT_MB=3800          # FAT32 caps a file at 4 GiB; leave headroom.
+FAT32_MAX=4294967296
+
+die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
+
+list_disks() {
+  info "External disks:"
+  diskutil list external physical
+}
+
+[[ "${1:-}" == "--list" ]] && { list_disks; exit 0; }
+
+[[ $# -eq 2 ]] || {
+  sed -n '3,6p' "$0" | sed 's/^# \{0,1\}//'
+  exit 1
+}
+
+ISO="$1"
+DISK="${2#/dev/}"
+
+[[ -f "$ISO" ]] || die "no such ISO: $ISO"
+command -v wimlib-imagex >/dev/null || die "wimlib missing — run: brew install wimlib"
+
+# --- refuse anything that is not an external, removable, physical disk -------
+# This is the one step that can destroy the wrong thing. Fail closed.
+DINFO="$(diskutil info "$DISK" 2>/dev/null)" || die "no such disk: $DISK"
+grep -q 'Device Location:.*External'  <<<"$DINFO" || die "$DISK is not external — refusing"
+grep -q 'Removable Media:.*Removable' <<<"$DINFO" || die "$DISK is not removable — refusing"
+grep -q 'Virtual:.*No'                <<<"$DINFO" || die "$DISK is a virtual/disk-image device — refusing"
+
+DISK_SIZE="$(awk -F': +' '/^ *Disk Size/{print $2; exit}' <<<"$DINFO")"
+DISK_NAME="$(awk -F': +' '/^ *Device \/ Media Name/{print $2; exit}' <<<"$DINFO")"
+
+echo
+info "ISO:    $ISO ($(du -h "$ISO" | cut -f1))"
+info "Target: /dev/$DISK — $DISK_NAME, $DISK_SIZE"
+echo
+
+# --- show what is about to be destroyed, and offer to keep it ---------------
+while IFS= read -r vol; do
+  [[ -n "$vol" ]] || continue
+  used="$(du -sh "$vol" 2>/dev/null | cut -f1 || echo '?')"
+  info "Currently mounted: $vol ($used of data)"
+  read -r -p "    Back it up to ~/Downloads/$(basename "$vol")-backup first? [Y/n] " ans
+  if [[ ! "$ans" =~ ^[Nn] ]]; then
+    dest="$HOME/Downloads/$(basename "$vol")-backup"
+    mkdir -p "$dest"
+    rsync -a --exclude '.Spotlight-V100' --exclude '.fseventsd' \
+             --exclude 'System Volume Information' --exclude 'LOST.DIR' \
+             "$vol/" "$dest/"
+    info "Backed up to $dest ($(du -sh "$dest" | cut -f1))"
+  fi
+done < <(mount | awk -v d="^/dev/$DISK" '$1 ~ d {sub(/^[^ ]+ on /,""); sub(/ \(.*$/,""); print}')
+
+echo
+printf '\033[31mThis ERASES /dev/%s (%s, %s).\033[0m\n' "$DISK" "$DISK_NAME" "$DISK_SIZE"
+read -r -p "Type ERASE to continue: " confirm
+[[ "$confirm" == "ERASE" ]] || die "aborted"
+
+# --- scratch space, next to the ISO (never /tmp: macOS purges it) -----------
+SCRATCH="$(dirname "$ISO")/.win-usb-scratch.$$"
+ISO_MNT="$SCRATCH/iso"
+mkdir -p "$ISO_MNT"
+cleanup() {
+  mount | grep -q " $ISO_MNT " && umount "$ISO_MNT" 2>/dev/null || true
+  [[ -n "${ISO_DEV:-}" ]] && hdiutil detach "$ISO_DEV" -quiet 2>/dev/null || true
+  rm -rf "$SCRATCH"
+}
+trap cleanup EXIT
+
+# --- 1. format --------------------------------------------------------------
+info "Formatting /dev/$DISK as MBR + FAT32 (WINSTALL)…"
+diskutil eraseDisk MS-DOS WINSTALL MBR "/dev/$DISK" >/dev/null
+USB="/Volumes/WINSTALL"
+[[ -d "$USB" ]] || die "expected $USB after erase"
+
+# --- 2. mount the ISO (udf, see note 1) -------------------------------------
+info "Mounting ISO…"
+ISO_DEV="$(hdiutil attach -nomount "$ISO" | awk 'NR==1{print $1}')"
+mount -t udf -r "$ISO_DEV" "$ISO_MNT"
+[[ -e "$ISO_MNT/sources" ]] || die "no sources/ in ISO — is this a Windows install ISO?"
+
+# --- 3. copy everything except the install image -----------------------------
+info "Copying boot files (boot.catalog will fail — expected, see note 3)…"
+rsync -rt --exclude 'sources/install.wim' --exclude 'sources/install.esd' \
+      --exclude '.*' "$ISO_MNT/" "$USB/" || true
+
+[[ -f "$USB/efi/boot/bootx64.efi" ]] || die "efi/boot/bootx64.efi missing — stick will not boot UEFI"
+[[ -f "$USB/sources/boot.wim" ]]     || die "sources/boot.wim missing — Setup will not start"
+
+# --- 4. the install image ----------------------------------------------------
+SRC=""
+for cand in install.wim install.esd; do
+  [[ -f "$ISO_MNT/sources/$cand" ]] && { SRC="$ISO_MNT/sources/$cand"; break; }
+done
+[[ -n "$SRC" ]] || die "no sources/install.wim or install.esd in ISO"
+
+SRC_SIZE="$(stat -f %z "$SRC")"
+
+if (( SRC_SIZE <= FAT32_MAX )); then
+  info "Install image is $(du -h "$SRC" | cut -f1) — fits FAT32, copying whole."
+  rsync -rt --progress "$SRC" "$USB/sources/"
+else
+  info "Install image is $(du -h "$SRC" | cut -f1) — over FAT32's 4 GiB cap, splitting."
+  if ! wimlib-imagex split "$SRC" "$USB/sources/install.swm" "$SPLIT_MB" 2>"$SCRATCH/split.err"; then
+    grep -qi 'solid' "$SCRATCH/split.err" || { cat "$SCRATCH/split.err" >&2; die "split failed"; }
+
+    # Note 2: solid WIM. Re-export non-solid, then split that.
+    info "Solid image — re-exporting non-solid (LZX, $(sysctl -n hw.ncpu) threads, ~3 min)…"
+    rm -f "$USB/sources/install"*.swm
+    wimlib-imagex export "$SRC" all "$SCRATCH/nonsolid.wim" \
+      --compress=LZX --threads="$(sysctl -n hw.ncpu)"
+    info "Re-exported: $(du -h "$SCRATCH/nonsolid.wim" | cut -f1). Splitting onto the stick…"
+    wimlib-imagex split "$SCRATCH/nonsolid.wim" "$USB/sources/install.swm" "$SPLIT_MB"
+  fi
+fi
+
+# --- 5. verify no file broke the FAT32 cap ----------------------------------
+while IFS= read -r f; do
+  sz="$(stat -f %z "$f")"
+  (( sz <= FAT32_MAX )) || die "$(basename "$f") is $sz bytes — over the FAT32 cap"
+done < <(find "$USB/sources" -maxdepth 1 -name 'install*' -type f)
+
+info "Contents verified:"
+ls -lh "$USB/sources/install"* | awk '{print "    " $9 "  " $5}'
+df -h "$USB" | tail -1 | awk '{print "    " $3 " used, " $4 " free"}'
+
+# --- 6. eject (note 4: Spotlight dissents the first attempt) ----------------
+info "Flushing and ejecting…"
+sync
+for attempt in 1 2 3; do
+  if diskutil eject "/dev/$DISK" 2>/dev/null; then
+    printf '\033[32m✓\033[0m Done. Boot the target with F12 → the "UEFI:" entry.\n'
+    printf '  Local account at the network screen: Shift+F10 → start ms-cxh:localonly\n'
+    exit 0
+  fi
+  info "Eject dissented (Spotlight indexing) — retrying in 10s…"
+  sync; sleep 10
+done
+die "could not eject — close anything using $USB, then: diskutil eject /dev/$DISK"
