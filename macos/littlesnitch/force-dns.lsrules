@@ -23,8 +23,8 @@
       "process": "any",
       "direction": "outgoing",
       "remote-domains": "cloudflare-dns.com,cloudflare-gateway.com,cloudflareclient.com",
-      "ports": "443,2408",
-      "notes": "Cloudflare DoH + WARP tunnel"
+      "ports": "443,853,2408",
+      "notes": "Cloudflare DoH/DoT + WARP tunnel (853 so Gateway DoT can be tested from the Mac)"
     },
     {
       "action": "deny",
