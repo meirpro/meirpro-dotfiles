@@ -61,12 +61,83 @@ MSG
     exit 2
   fi
 
-  # Shell: `something <file> > <same file>`. The redirect truncates before the
+  # Shell: `something FILE > SAME-FILE`. The redirect truncates before the
   # command's first read. Requires the token to look like a path and to appear
   # BEFORE the redirect, so `cmd > fresh.log` is untouched.
-  target="$(printf '%s' "$cmd" | sed -n 's/.*[^0-9>]>[[:space:]]*\([^[:space:];|&<>]*\).*/\1/p' | head -1)"
+  #
+  # THE SCAN MUST RESPECT QUOTING. A `>` inside a quoted argument is text, and
+  # the shell will not redirect on it — but a plain text match cannot tell the
+  # difference, so any command carrying a quoted `>` next to a path-shaped word
+  # was refused. Real false positive (2026-09-06): a task-tracker call whose
+  # message read "...hayom-1.11.1-BUILD-CHANNEL.apk..." with angle brackets
+  # around the placeholders. The scan took the `>` of a placeholder as a
+  # redirect, `.apk` as the target, found `.apk` earlier in the same sentence,
+  # and blocked a command that writes no file at all.
+  #
+  # Stripping quoted spans first would fix that and break the guard: the
+  # dangerous form is very often `cmd "in.txt" > "in.txt"`, where the TARGET
+  # itself is quoted, so removing quoted spans removes the evidence. Instead
+  # this walks the string tracking quote state, finds a `>` at depth zero, and
+  # unquotes only the target token.
+  redirect_at=""
+  {
+    _s="$cmd"
+    _n=${#_s}
+    _sq=0
+    _dq=0
+    _i=0
+    while [ "$_i" -lt "$_n" ]; do
+      _c="${_s:_i:1}"
+      # A backslash inside "..." escapes the next character, including a quote.
+      if [ "$_dq" -eq 1 ] && [ "$_c" = "\\" ]; then
+        _i=$((_i + 2))
+        continue
+      fi
+      if [ "$_c" = "'" ] && [ "$_dq" -eq 0 ]; then
+        _sq=$((1 - _sq))
+      elif [ "$_c" = '"' ] && [ "$_sq" -eq 0 ]; then
+        _dq=$((1 - _dq))
+      elif [ "$_c" = ">" ] && [ "$_sq" -eq 0 ] && [ "$_dq" -eq 0 ]; then
+        _prev=""
+        [ "$_i" -gt 0 ] && _prev="${_s:_i-1:1}"
+        _next="${_s:_i+1:1}"
+        # `2>` is a stream number, `>>` appends — neither truncates on open.
+        case "$_prev" in
+          [0-9] | ">") _i=$((_i + 1)); continue ;;
+        esac
+        if [ "$_next" = ">" ]; then
+          _i=$((_i + 2))
+          continue
+        fi
+        redirect_at="$_i"
+        break
+      fi
+      _i=$((_i + 1))
+    done
+  }
+
+  target=""
+  before=""
+  if [ -n "$redirect_at" ]; then
+    before="${cmd:0:redirect_at}"
+    _rest="${cmd:redirect_at+1}"
+    # Leading whitespace, then the token up to the next separator.
+    #
+    # FIRST LINE ONLY. `sed` is line-oriented, so without the `1` a multi-line
+    # command yielded a multi-line "target" — one match per line — which then
+    # matched nothing sensible and produced an unreadable refusal naming a
+    # dozen words at once. A redirect target is one token on one line.
+    _rest="${_rest#"${_rest%%[![:space:]]*}"}"
+    target="$(printf '%s' "$_rest" | sed -n '1s/^\([^[:space:];|&<>]*\).*/\1/p')"
+    # The target may itself be quoted — `> "out with spaces.txt"` — so compare
+    # on the bare path, which is also what `before` would contain either way.
+    target="${target%\"}"
+    target="${target#\"}"
+    target="${target%\'}"
+    target="${target#\'}"
+  fi
+
   if [ -n "$target" ] && printf '%s' "$target" | grep -Eq '[./]' && ! printf '%s' "$target" | grep -q '^-'; then
-    before="${cmd%%>*}"
     if printf '%s' "$before" | grep -Fq -- "$target"; then
       cat >&2 <<MSG
 BLOCKED — truncate-before-read: "$target" is both an input and the > target.
