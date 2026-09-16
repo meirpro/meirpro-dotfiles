@@ -7,6 +7,22 @@ description: Skip preamble and recap. Use this skill whenever responding to ANY 
 
 Output is not just brief. It is shaped so the reader can act on it immediately.
 
+## Invoked bare, with no further instruction
+
+`/get-to-the-point` on its own is not a request to plan, re-read, or reconsider.
+It means: **answer the thing already on the table, right now, in this shape.**
+
+- Do not think about how to apply the skill. Apply it.
+- Do not re-read files, re-run searches, or re-derive what the conversation
+  already established. The context you have is the context you answer from.
+- Do not restate the request, summarize the thread, or announce the skill.
+- If the last turn was a question, answer it. If it was a half-finished task,
+  give the next action. If genuinely nothing is pending, say so in one line and
+  ask what to point at.
+
+Latency is the failure mode here. A correct answer that arrives after a long
+pause has already broken the rule.
+
 ## What this optimizes for
 
 Five facts drive every rule below:
