@@ -31,7 +31,7 @@ The wrapper catches the above. These have no safety net:
   you see changes you didn't make, they're another agent's. Don't stage them,
   don't stash them, don't discard them. Ask.
 - **A checkout's branch is a shared resource.** Sessions run in parallel in one
-  working directory, so switching moves the branch for *everyone* (observed
+  working directory, so switching moves the branch for _everyone_ (observed
   2026-06-24: a commit stranded on another session's branch + a migration-number
   collision; 2026-07-21: an agent minted four `ship/*` branches to imitate a
   missing `npm run ship` — a missing tool means ASK, not imitate). Work on the
@@ -41,7 +41,7 @@ The wrapper catches the above. These have no safety net:
 - **Never create worktrees under `/tmp`** (or `/private/tmp`, `$TMPDIR`) —
   macOS purges tmp on reboot and on a 3-day timer, silently destroying
   uncommitted work and orphaning the registration. Use the repo's
-  `.claude/worktrees/<name>/`, and gitignore that dir *before* the first one.
+  `.claude/worktrees/<name>/`, and gitignore that dir _before_ the first one.
   Same for any scratch checkout meant to outlive one command. Caveat: a nested
   worktree is edit isolation, **not** the test oracle — run the authoritative
   suite in the main checkout or CI.
@@ -66,7 +66,7 @@ The wrapper catches the above. These have no safety net:
   answer has never once been no, and the question costs a round trip while the
   tree sits dirty for every parallel agent. Restated by the user 2026-08-19
   after a verified, fully-tested fix was left uncommitted behind that question.
-  Ask only when a *precondition* of the rule above is genuinely unmet — the
+  Ask only when a _precondition_ of the rule above is genuinely unmet — the
   change is half a larger unit, or the diff carries files you cannot attribute.
   Say which, rather than asking the generic question.
 
@@ -82,23 +82,23 @@ meta-test guarding the lint config itself.)
 Lifecycle for every non-trivial bug:
 
 1. Fix the code.
-2. Add a mechanical guard that *would have caught it* — a uniquely-named custom
+2. Add a mechanical guard that _would have caught it_ — a uniquely-named custom
    ESLint rule, a `no-restricted-syntax`/`no-restricted-imports` selector, or a
    test that walks the source tree when an AST selector can't express the
    pattern.
 3. Document the incident in the guard's header: what it bans, why it's a bug
-   class (with PR/commit SHA), and what it deliberately does *not* flag.
+   class (with PR/commit SHA), and what it deliberately does _not_ flag.
 4. If the guard itself has a failure mode, guard the guard.
 5. Wire it into the gate so it runs unattended (CI + the save-time hook).
 
 **Prefer uniquely-named custom rules over `no-restricted-syntax`.** ESLint flat
-config *replaces* rather than merges a rule's options when several blocks match
+config _replaces_ rather than merges a rule's options when several blocks match
 the same file — last block wins — so a late `no-restricted-syntax` block can
 silently disable every earlier selector (observed: ~8 days inert). A custom
 rule can neither clobber nor be clobbered. If you must use
 `no-restricted-syntax`, duplicate selectors into the last-matching block and
 pin it with a test that calls both `eslint.calculateConfigForFile()` **and**
-`eslint.lintText()` — a clobbered selector still *appears* present while being
+`eslint.lintText()` — a clobbered selector still _appears_ present while being
 inert.
 
 **Escape hatches are explicit, inline, and reasoned** — a greppable marker with
@@ -163,7 +163,7 @@ For structuring and costing a delegated verify-then-fix run, use the
   indentation, naming. Don't restyle code you didn't change; it buries the real
   diff.
 - **Prefer a path argument over `cd`** (`command some/dir/file`). When a tool
-  genuinely needs the directory, keep the `cd` in the *same* invocation — many
+  genuinely needs the directory, keep the `cd` in the _same_ invocation — many
   runners reset the working directory between commands, so a standalone `cd`
   silently doesn't apply.
 
@@ -200,7 +200,7 @@ port in `package.json` scripts (or `vite.config.ts`, `wrangler.toml`), then
 
 **Never pin a stdio MCP server to `npx …@latest`.** Claude Code spawns stdio
 servers synchronously at session start and blocks the prompt until they're up.
-The `@latest` dist-tag forces `npx` to hit the registry on *every* launch even
+The `@latest` dist-tag forces `npx` to hit the registry on _every_ launch even
 when cached, so a slow network hangs the whole session behind it. Pin an exact
 version (e.g. `@playwright/mcp@0.0.76`) and bump deliberately.
 
@@ -211,7 +211,7 @@ The cost differs by category:
 
 - **Plugins** load into every session and cost tokens each time → keep the
   global core lean, opt into the rest per-project.
-- **MCP servers** spawn at every session start and *block the prompt* → global
+- **MCP servers** spawn at every session start and _block the prompt_ → global
   should be near-zero. There is **no** installed-globally-but-off mode for MCPs
   (unlike plugins): a global MCP always runs, so per-project config is the only
   way to avoid paying startup cost in unrelated sessions.
@@ -222,12 +222,58 @@ The cost differs by category:
 Enable per-project with `claude plugin enable <plugin> -s project` or the
 repo's `.claude/settings.json` → `enabledPlugins` (project scope overrides
 global), then `/reload-plugins`. ⚠ `claude plugin list` and `/doctor` can
-report stale errors from the *running* session until a reload — verify against
+report stale errors from the _running_ session until a reload — verify against
 on-disk `enabledPlugins`, not the live list.
 
 **"Install globally, default off, enable per-project"** is the intended pattern
 for a stack plugin used in several repos: install at user scope, leave `false`
 in the global `enabledPlugins`, set `true` in each relevant repo.
+
+### The two levers are NOT interchangeable (measured 2026-09-15)
+
+`skillOverrides` in `settings.json` takes four values per skill — `on`,
+`name-only`, `user-invocable-only`, `off` — and a **project can RAISE a skill**,
+not only lower it. So `name-only` globally + `"on"` in the one repo that needs it
+is a real pattern (`codex-judaica-data` is the worked example). `name-only` keeps
+the name visible, so "which skill fits this task?" still works; `off` removes it
+from the `/` picker too.
+
+**But `skillOverrides` only reaches raw skills in `~/.claude/skills/`.** The
+schema says so outright — _"Plugin skills are not affected by this setting"_ —
+and it was confirmed empirically: a `name-only` override on a plugin skill, tried
+both as a bare name and as the qualified `plugin:skill` form, changed nothing.
+**Plugins are binary per scope.** There is no name-only for a plugin, which is
+what makes a 49-skill bundle an all-or-nothing decision per repo.
+
+**Do not estimate a skill's context cost from its `SKILL.md`.** Claude Code
+elides the description of a skill you have never invoked and expands the ones you
+have, so raw frontmatter length overstates the real cost — by 10× on one bundle
+measured here. The authoritative number is the `context` column in the session's
+own skills table; `/context` in a fresh session before and after is the only
+before/after worth quoting.
+
+### An LSP plugin can be "installed" and still be dead
+
+The `typescript-lsp` plugin bundles no language server — it registers itself for
+`.ts/.tsx/.js/.jsx` and shells out to a `typescript-language-server` binary you
+install yourself. Absent that binary, `/plugin` still lists it, the reload still
+counts "1 plugin LSP server", and every call fails with `ENOENT`. Nothing
+announces it until a `goToDefinition` returns an error.
+
+```bash
+npm install -g typescript-language-server typescript
+```
+
+Verify by making a real call, not by re-reading config — `findReferences` on an
+exported symbol should return cross-file hits. `workspaceSymbol` returning
+nothing right after install is indexing, not failure; per-file operations work
+immediately. `setup-claude.sh` now reports the binary's absence at install time.
+
+⚠ `lspServers` in `settings.json` is **not in the published settings schema**
+(searched the full document, zero hits). A hand-written entry there — e.g.
+pointing `.swift` at `sourcekit-lsp` — is silently ignored: the binary is fine,
+the tool answers "No LSP server available for file type". Don't assume that key
+works because it looks plausible.
 
 ## After opening a PR
 
@@ -245,7 +291,7 @@ Flags may be combined and given in any order.
 
 **Merges with a MERGE COMMIT by default** (changed 2026-08-16; it squashed
 before). Squashing is right for a scratch branch whose intermediate commits are
-noise, but as the *default* it silently discarded per-commit reasoning on
+noise, but as the _default_ it silently discarded per-commit reasoning on
 branches whose commits were written to be read, and rewrote authorship to the
 PR author — which is what blocks `sweetrobo/crm`'s deploy gate when you merge
 someone else's PR. Reach for `--squash` deliberately, per branch.
@@ -270,7 +316,7 @@ it forked from, never the main it merges into.**
   on `origin/main`, not by local branch state:
   `git fetch origin main && git show origin/main:<file> | grep <sentinel>`.
 - **Suite composition changes execution order.** Merging big branches can
-  expose a latent order-dependency in an *untouched* test. CI on the merged
+  expose a latent order-dependency in an _untouched_ test. CI on the merged
   main is the only oracle for the combined suite.
 - **Trust only a foreground exit code.** `npm run verify | tail` and
   backgrounded runs both masked a real `exit 1`. Use

@@ -186,6 +186,21 @@ check_dep "node"
 check_dep "python3" "python"
 check_dep "jq"
 
+# typescript-language-server — the binary the `typescript-lsp` plugin shells out
+# to. The plugin ships only a LICENSE and a README; it does NOT bundle a server,
+# and it registers itself for .ts/.tsx/.js/.jsx regardless. So when the binary is
+# absent, the plugin looks installed, /plugin counts it, and every LSP call dies
+# with `ENOENT: typescript-language-server --stdio`. Nothing surfaces that until
+# you try a goToDefinition — it had been broken here for an unknown length of
+# time (found 2026-09-15). Not in check_dep above: it is optional, and its fix is
+# an npm install rather than a package manager line.
+if command -v typescript-language-server &>/dev/null; then
+    echo -e "${GREEN}  typescript-language-server${NC}"
+else
+    echo -e "${YELLOW}  typescript-language-server — not found (LSP code intelligence disabled)${NC}"
+    echo -e "${DIM}    Install: npm install -g typescript-language-server typescript${NC}"
+fi
+
 if [ "$all_ok" = false ]; then
     echo ""
     echo -e "${YELLOW}Missing dependencies. Install with:${NC}"
