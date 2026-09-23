@@ -31,6 +31,18 @@ run 'git commit -m "fix: stop scanning node_modules/foo"'     0 'commit message 
 run 'echo "see node_modules/x for details"'                   0 'echo names the path'
 run 'git commit -F /tmp/msg.txt'                              0 'commit from a message file'
 
+echo "MUST ALLOW (0) — exclusions are the opposite of a read (2026-09-23):"
+run "find . -name package.json -not -path '*/node_modules/*' | xargs cat" 0 'find -not -path'
+run "find . -name '*.json' ! -path '*/node_modules/*' -exec cat {} +"     0 'find ! -path'
+run "find . -path '*/node_modules/*' -prune -o -name '*.ts' -print | xargs head -5" 0 'find -path -prune'
+run 'grep -rn "openai" . --exclude-dir=node_modules'          0 'grep --exclude-dir='
+run 'grep -rn foo . --exclude-dir node_modules'               0 'grep --exclude-dir spaced'
+run "git grep openai -- ':!node_modules'"                     0 'git pathspec :!'
+run "git grep openai -- ':(exclude)node_modules'"             0 'git pathspec :(exclude)'
+# The exclusion scrub must not become a bypass: a real read chained after one
+# still leaves a bare node_modules/ behind, and must still be caught.
+run 'grep -rn f . --exclude-dir=node_modules && cat node_modules/r/i.js' 2 'chained: exclude then read'
+
 echo "MUST ALLOW (0) — the recommended alternatives:"
 run 'test -d node_modules/@types/jsdom && echo HAS'           0 'existence check'
 run '[ -d node_modules/foo ] && echo yes'                     0 'bracket existence check'

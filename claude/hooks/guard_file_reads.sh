@@ -108,6 +108,26 @@ scrubbed="$(printf '%s' "$cmd" \
   | sed -E 's/(^|[[:space:]])test[[:space:]]+-[defsxLrw][[:space:]]+[^[:space:]&|;]+/\1/g' \
   | sed -E 's/\[[[:space:]]+-[defsxLrw][[:space:]]+[^]]*\]/ /g')"
 
+# EXCLUSIONS are the opposite of a read (2026-09-23).
+#
+# `find . -name package.json -not -path '*/node_modules/*'` names the path only
+# to stay OUT of it, and was blocked: the guard saw the word, saw a reader verb
+# elsewhere in the pipeline, and refused a command written specifically to
+# avoid the thing it was refused for. `git ls-files` is a fine workaround, but
+# the guard should not push people off the obvious tool for the job.
+#
+# Stripping these fragments cannot hide a real read, for the same reason the
+# `test -d` scrub above cannot: only the exclusion token is removed, so a
+# chained `--exclude-dir=node_modules ... && cat node_modules/x/f` still has a
+# bare `node_modules/` left over and is still caught.
+q="[\"']?"                       # optional surrounding quote
+tok="[^[:space:]\"'&|;]*"        # one path-ish token, no shell separators
+scrubbed="$(printf '%s' "$scrubbed" \
+  | sed -E "s/--exclude(-dir)?[=[:space:]]+${q}${tok}node_modules${tok}${q}/ /g" \
+  | sed -E "s/(-not[[:space:]]+|![[:space:]]+)-i?path[[:space:]]+${q}${tok}node_modules${tok}${q}/ /g" \
+  | sed -E "s/-i?path[[:space:]]+${q}${tok}node_modules${tok}${q}[[:space:]]+-prune/ /g" \
+  | sed -E "s/:(\(exclude\)|!)${tok}node_modules${tok}/ /g")"
+
 # Both conditions, for the same reason the secrets branch needs both: naming
 # the path is not reading it. `git commit -m "...node_modules/x..."` and
 # `echo node_modules/foo` carry no reader verb and are none of this guard's
