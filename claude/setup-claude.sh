@@ -147,7 +147,16 @@ echo ""
 
 # Install files
 echo -e "${YELLOW}Installing files...${NC}"
-create_symlink "$REPO_DIR/settings.json" "$CLAUDE_DIR/settings.json" "settings.json"
+# settings.json is BUILT, not linked: public base (this repo) + private overlay
+# (meirpro-machine), because autoMode must live in the user file and must not be
+# public. See claude/bin/claude-settings. A refusal here means an agent edited
+# the live file since the last build: run `claude-settings absorb`, review, rerun.
+git -C "$REPO_DIR/.." config core.hooksPath .githooks  # the public-safety pre-commit guard
+if "$REPO_DIR/bin/claude-settings" build; then
+    echo -e "${GREEN}  Built settings.json${NC}"
+else
+    echo -e "${RED}  settings.json NOT rebuilt — see the message above${NC}"
+fi
 create_symlink "$REPO_DIR/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md" "CLAUDE.md"
 create_symlink "$REPO_DIR/statusline-command.sh" "$CLAUDE_DIR/statusline-command.sh" "statusline-command.sh"
 

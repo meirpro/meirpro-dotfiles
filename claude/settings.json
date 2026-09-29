@@ -1,10 +1,369 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "advisorModel": "opus",
+  "agentPushNotifEnabled": true,
+  "askUserQuestionTimeout": "10m",
+  "autoCompactEnabled": true,
   "cleanupPeriodDays": 365,
+  "editorMode": "normal",
+  "effortLevel": "medium",
+  "enabledPlugins": {
+    "aws-amplify@claude-plugins-official": false,
+    "aws-core@claude-plugins-official": false,
+    "aws-data-analytics@claude-plugins-official": false,
+    "aws-dev-toolkit@claude-plugins-official": false,
+    "aws-serverless@claude-plugins-official": false,
+    "aws-startup-advisor@claude-plugins-official": false,
+    "browser-use@claude-plugins-official": true,
+    "chrome-devtools-mcp@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "claude-security@claude-plugins-official": true,
+    "cloudflare@claude-plugins-official": false,
+    "commit-commands@claude-plugins-official": false,
+    "context7@claude-plugins-official": true,
+    "deploy-on-aws@claude-plugins-official": false,
+    "desktop-commander@claude-plugins-official": false,
+    "explanatory-output-style@claude-plugins-official": false,
+    "firecrawl@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true,
+    "hookify@claude-plugins-official": false,
+    "hyperframes@claude-plugins-official": false,
+    "impeccable@impeccable": false,
+    "kiosk-standard@kiosk-standard-dev": false,
+    "mapbox@claude-plugins-official": false,
+    "mongodb@claude-plugins-official": false,
+    "neon@claude-plugins-official": false,
+    "playground@claude-plugins-official": false,
+    "playwright@claude-plugins-official": true,
+    "resend@claude-plugins-official": false,
+    "save-to-spotify@claude-plugins-official": false,
+    "security-guidance@claude-plugins-official": true,
+    "sentry-cli@claude-plugins-official": false,
+    "sentry@claude-plugins-official": false,
+    "session-report@claude-plugins-official": false,
+    "stripe@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "taste-skill@taste-skill": false,
+    "typescript-lsp@claude-plugins-official": true,
+    "ui-ux-pro-max@ui-ux-pro-max-skill": true,
+    "vercel@claude-plugins-official": false
+  },
   "env": {
     "CLAUDE_CODE_ENABLE_TELEMETRY": "0"
   },
-  "includeCoAuthoredBy": false,
+  "extraKnownMarketplaces": {
+    "impeccable": {
+      "source": {
+        "repo": "pbakaus/impeccable",
+        "source": "github"
+      }
+    },
+    "kiosk-standard-dev": {
+      "source": {
+        "source": "github",
+        "repo": "meirpro/kiosk-standard"
+      }
+    },
+    "marketingskills": {
+      "source": {
+        "repo": "coreyhaines31/marketingskills",
+        "source": "github"
+      }
+    },
+    "taste-skill": {
+      "source": {
+        "repo": "Leonxlnx/taste-skill",
+        "source": "github"
+      }
+    },
+    "ui-ux-pro-max-skill": {
+      "source": {
+        "repo": "nextlevelbuilder/ui-ux-pro-max-skill",
+        "source": "github"
+      }
+    }
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "timeout": 86400,
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/ts_lint.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/ts_check.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/format_code.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/guard_truncation.sh post",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ],
+        "matcher": "*"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/log_bash.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "async": true,
+            "command": "bash ~/.claude/hooks/log_tool_use.sh",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "jq -r '.tool_input.file_path // .tool_input.command // \"\"' | grep -qi '\\.claire' && { echo \"Blocked .claire path (typo of .claude). Use .claude.\" >&2; exit 2; } || exit 0",
+            "type": "command"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/guard_truncation.sh pre",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/guard_file_reads.sh",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/wrapup-enqueue.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/get-to-the-point-reminder",
+            "type": "command"
+          }
+        ],
+        "matcher": "startup|resume|clear|compact"
+      },
+      {
+        "hooks": [
+          {
+            "command": "~/.claude/hooks/cbm-session-reminder",
+            "type": "command"
+          }
+        ],
+        "matcher": "startup|resume|clear|compact"
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/session_tracker.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "~/git/claude_timings_wrapper/hooks/claude-timing-stop.sh",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/session_heartbeat.sh",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "bash ~/.claude/hooks/wrapup-enqueue.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "~/git/claude_timings_wrapper/hooks/claude-timing-start.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "inputNeededNotifEnabled": true,
   "permissions": {
     "allow": [
       "Bash(cc --help)",
@@ -24,6 +383,7 @@
       "mcp__plugin_sentry_sentry__search_issues",
       "mcp__rotrics-manual__searchDocumentation"
     ],
+    "defaultMode": "auto",
     "deny": [
       "Read(**/.env)",
       "Read(**/.env.local)",
@@ -36,346 +396,63 @@
       "Read(**/*.crt)",
       "Read(**/*.cert)",
       "Read(**/secrets/**)",
-      "Read(**/node_modules/**)",
-      "Read(**/credentials/**)"
-    ],
-    "defaultMode": "default"
-  },
-  "model": "opus[1m]",
-  "hooks": {
-    "Notification": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "timeout": 86400
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/ts_lint.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/ts_check.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/format_code.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/guard_truncation.sh post"
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/log_bash.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/log_tool_use.sh",
-            "async": true
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "jq -r '.tool_input.file_path // .tool_input.command // \"\"' | grep -qi '\\.claire' && { echo \"Blocked .claire path (typo of .claude). Use .claude.\" >&2; exit 2; } || exit 0"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/guard_truncation.sh pre"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/wrapup-enqueue.sh"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/get-to-the-point-reminder"
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/cbm-session-reminder"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/session_tracker.sh"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/git/claude_timings_wrapper/hooks/claude-timing-stop.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/session_heartbeat.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ~/.claude/hooks/wrapup-enqueue.sh"
-          }
-        ]
-      }
-    ],
-    "StopFailure": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/git/claude_timings_wrapper/hooks/claude-timing-start.sh"
-          }
-        ]
-      }
+      "Read(**/credentials/**)",
+      "Read(**/node_modules/**)"
     ]
   },
+  "remoteControlAtStartup": false,
+  "skillOverrides": {
+    "agents-sdk": "off",
+    "animate": "name-only",
+    "animate-expo": "name-only",
+    "animation-vocabulary": "name-only",
+    "apple-design": "name-only",
+    "ask-sonner": "name-only",
+    "building-kiosk-apps": "name-only",
+    "cloudflare": "off",
+    "cloudflare-email-service": "off",
+    "cloudflare-one": "off",
+    "cloudflare-one-migrations": "off",
+    "codex-judaica-data": "name-only",
+    "ctf-forensics": "name-only",
+    "disk-forensics": "name-only",
+    "disk-imaging-dd": "name-only",
+    "durable-objects": "off",
+    "emil-design-eng": "name-only",
+    "find-animation-opportunities": "name-only",
+    "get-to-the-point": "name-only",
+    "iiif-manuscript-to-pdf": "name-only",
+    "improve-animations": "name-only",
+    "lottie-animations": "name-only",
+    "mobile-native": "name-only",
+    "morning": "name-only",
+    "multi-agent-verification": "name-only",
+    "pick-ui-library": "name-only",
+    "pptx": "name-only",
+    "prototype": "name-only",
+    "review-animations": "name-only",
+    "sandbox-migrate-to-next": "name-only",
+    "sandbox-next": "name-only",
+    "sandbox-sdk": "off",
+    "sandbox-stable": "name-only",
+    "transcribe-audio": "name-only",
+    "turnstile-spin": "off",
+    "web-perf": "off",
+    "workers-best-practices": "off",
+    "wrangler": "off",
+    "write-swift": "name-only",
+    "xlsx": "name-only"
+  },
+  "skipAutoPermissionPrompt": true,
+  "skipWorkflowUsageWarning": true,
+  "statusLine": {
+    "command": "bash ~/.claude/statusline-command.sh",
+    "type": "command"
+  },
+  "theme": "auto",
+  "tui": "default",
+  "voiceEnabled": true,
   "worktree": {
     "baseRef": "fresh"
-  },
-  "enableArtifact": false,
-  "statusLine": {
-    "type": "command",
-    "command": "bash ~/.claude/statusline-command.sh"
-  },
-  "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "context7@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
-    "vercel@claude-plugins-official": false,
-    "claude-code-setup@claude-plugins-official": true,
-    "commit-commands@claude-plugins-official": false,
-    "chrome-devtools-mcp@claude-plugins-official": true,
-    "explanatory-output-style@claude-plugins-official": false,
-    "playground@claude-plugins-official": false,
-    "hookify@claude-plugins-official": false,
-    "sentry@claude-plugins-official": true,
-    "firecrawl@claude-plugins-official": true,
-    "cloudflare@claude-plugins-official": true,
-    "session-report@claude-plugins-official": false,
-    "deploy-on-aws@claude-plugins-official": false,
-    "aws-serverless@claude-plugins-official": false,
-    "mongodb@claude-plugins-official": false,
-    "desktop-commander@claude-plugins-official": false,
-    "aws-core@claude-plugins-official": false,
-    "neon@claude-plugins-official": false,
-    "aws-dev-toolkit@claude-plugins-official": false,
-    "resend@claude-plugins-official": true,
-    "aws-amplify@claude-plugins-official": false,
-    "hyperframes@claude-plugins-official": false,
-    "sentry-cli@claude-plugins-official": true,
-    "aws-data-analytics@claude-plugins-official": false,
-    "mapbox@claude-plugins-official": true,
-    "aws-startup-advisor@claude-plugins-official": false,
-    "save-to-spotify@claude-plugins-official": false,
-    "browser-use@claude-plugins-official": true,
-    "claude-security@claude-plugins-official": true,
-    "ui-ux-pro-max@ui-ux-pro-max-skill": true,
-    "stripe@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "ui-ux-pro-max-skill": {
-      "source": {
-        "source": "github",
-        "repo": "nextlevelbuilder/ui-ux-pro-max-skill"
-      }
-    },
-    "marketingskills": {
-      "source": {
-        "source": "github",
-        "repo": "coreyhaines31/marketingskills"
-      }
-    }
-  },
-  "effortLevel": "medium",
-  "askUserQuestionTimeout": "5m",
-  "tui": "default",
-  "skipWorkflowUsageWarning": true,
-  "theme": "auto",
-  "editorMode": "normal",
-  "autoCompactEnabled": true,
-  "remoteControlAtStartup": false,
-  "skipAutoPermissionPrompt": true,
-  "voiceEnabled": true
+  }
 }

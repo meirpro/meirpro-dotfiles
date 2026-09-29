@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Pre-commit guard for this PUBLIC repo.
+#
+# claude/settings.json is the public half of ~/.claude/settings.json; the
+# private half (autoMode, remote) lives in meirpro-machine. This refuses a
+# commit that would publish private-only keys, a home path or a credential —
+# the same lint claude-settings runs before every write. Also runs the tool's
+# tests when the tool itself changes.
+#
+# Enabled per clone by: git config core.hooksPath .githooks (setup-claude.sh does it).
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+staged="$(git diff --cached --name-only)"
+
+if grep -qx 'claude/settings.json' <<<"$staged"; then
+  tmp="$(mktemp)"
+  trap 'rm -f "$tmp"' EXIT
+  git show :claude/settings.json > "$tmp"   # the STAGED version, not the working tree
+  CLAUDE_SETTINGS_PUBLIC="$tmp" "$root/claude/bin/claude-settings" lint
+fi
+
+if grep -q '^claude/bin/\(claude-settings\|test_claude_settings.py\)$' <<<"$staged"; then
+  python3 "$root/claude/bin/test_claude_settings.py" -q
+fi

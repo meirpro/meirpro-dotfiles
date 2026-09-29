@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+"""
+claude-settings — build ~/.claude/settings.json from a PUBLIC base and a
+PRIVATE overlay, and fold agents' edits of the built file back into them.
+
+    claude-settings build [--force]   write ~/.claude/settings.json
+    claude-settings absorb            live edits -> the file that owns each key
+    claude-settings check             report drift, exit 1 if any
+    claude-settings lint              fail if the public base holds anything private
+
+Sources
+    public   meirpro-dotfiles/claude/settings.json        (this repo, PUBLIC)
+    private  meirpro-machine/claude/settings.private.json  (private repo)
+             override with $CLAUDE_SETTINGS_PRIVATE
+
+Why a build and not a symlink
+    The settings file used to be a symlink into this repo. Two things broke it:
+    `autoMode` describes one private project in detail (repo, prod database,
+    where secrets live) and Claude Code reads `autoMode` ONLY from the user file,
+    managed settings or --settings — never from a project's .claude/ — so it
+    cannot leave the user file and cannot go in a public repo either. And the
+    symlink was silently replaced by a plain file at some point, after which
+    the two copies drifted apart for over a month in both directions.
+
+Rules
+  * Every top-level key has ONE owner. `build` refuses a key present in both
+    sources, so nothing is ever deep-merged (permission and hook ARRAYS have no
+    safe merge).
+  * Agents edit ~/.claude/settings.json directly (/permissions, plugin
+    toggles). `build` therefore REFUSES when the live file differs from the
+    last build — run `absorb` first — because overwriting it would silently
+    discard those edits. `--force` skips the check, deliberately.
+  * `absorb` sends each changed key to the file that owns it. A NEW key nobody
+    owns goes to the PRIVATE file (printed), so nothing lands in a public repo
+    without a person promoting it. If a source changed since the build too,
+    it stops and names the key.
+  * Comparisons are on parsed JSON, never text: a formatter hook re-indents
+    the live file on every agent edit.
+  * The public base is linted on every write: no `autoMode`, no `remote`, no
+    home paths, nothing credential-shaped. The same check runs as this repo's
+    pre-commit hook.
+  * Writing never goes THROUGH a symlink: a leftover link at the target would
+    otherwise pour the private overlay into the public repo.
+
+State: ~/.claude/.settings.built.json is a copy of the last build; it is how
+`build` and `absorb` tell an agent's edit from a source change.
+"""
+import json
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+PUBLIC = Path(os.environ.get("CLAUDE_SETTINGS_PUBLIC", HERE.parent / "settings.json"))
+PRIVATE = Path(
+    os.environ.get(
+        "CLAUDE_SETTINGS_PRIVATE",
+        Path.home() / "git/meirpro-machine/claude/settings.private.json",
+    )
+)
+LIVE = Path.home() / ".claude/settings.json"
+SNAPSHOT = Path.home() / ".claude/.settings.built.json"
+
+# Keys that must never appear in the public base, whoever adds them.
+PRIVATE_ONLY_KEYS = {"autoMode", "remote"}
+LEAK_PATTERNS = [
+    (re.compile(r"/Users/[^/\"]+"), "a home-directory path"),
+    (re.compile(r"/home/[^/\"]+"), "a home-directory path"),
+    (re.compile(r"\bghp_[A-Za-z0-9]{20,}"), "a GitHub token"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "a GitHub token"),
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{20,}"), "an API key"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "an AWS key"),
+    (re.compile(r"\bxox[abpr]-[A-Za-z0-9-]{10,}"), "a Slack token"),
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "a private key"),
+]
+
+
+def die(msg: str, code: int = 1) -> None:
+    print(f"claude-settings: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def load(path: Path, required: bool = True) -> dict:
+    if not path.exists():
+        if required:
+            die(f"missing {path}")
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as e:
+        die(f"{path} is not valid JSON: {e}")
+    if not isinstance(data, dict):
+        die(f"{path} is not a JSON object")
+    return data
+
+
+def dump(data: dict) -> str:
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def write_atomic(path: Path, data: dict) -> None:
+    """Replace `path` with `data`. A symlink AT the path is removed first, so
+    the write can never land in whatever the link points at."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        path.unlink()
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(dump(data))
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+def lint_public(public: dict) -> list[str]:
+    problems = [
+        f"`{k}` is private-only and must live in {PRIVATE}"
+        for k in sorted(PRIVATE_ONLY_KEYS & public.keys())
+    ]
+    for key, value in public.items():
+        text = json.dumps(value, ensure_ascii=False)
+        for pattern, what in LEAK_PATTERNS:
+            m = pattern.search(text)
+            if m:
+                problems.append(f"`{key}` contains {what}: {m.group(0)[:40]}…")
+    return problems
+
+
+def merged(public: dict, private: dict) -> dict:
+    both = sorted(public.keys() & private.keys())
+    if both:
+        die(
+            "a key may have only one owner, but these are in BOTH sources: "
+            + ", ".join(both)
+        )
+    out = dict(public)
+    out.update(private)
+    return out
+
+
+def cmd_lint() -> None:
+    problems = lint_public(load(PUBLIC))
+    if problems:
+        die(f"public base {PUBLIC} is not safe to publish:\n  - " + "\n  - ".join(problems))
+    print(f"lint ok: {PUBLIC}")
+
+
+def cmd_build(force: bool) -> None:
+    public = load(PUBLIC)
+    problems = lint_public(public)
+    if problems:
+        die("refusing to build from an unsafe public base:\n  - " + "\n  - ".join(problems))
+    private = load(PRIVATE, required=False)
+    if not private:
+        print(
+            f"WARNING: no private overlay at {PRIVATE}.\n"
+            "  Building from the public base ALONE: no autoMode, so auto mode runs\n"
+            "  without this machine's protected-environment rules.",
+            file=sys.stderr,
+        )
+    result = merged(public, private)
+
+    if LIVE.exists() and not force:
+        live = load(LIVE)
+        if not SNAPSHOT.exists():
+            if live != result:
+                die(
+                    f"{LIVE} exists and there is no record of a previous build, so its\n"
+                    "  contents cannot be told apart from agents' edits. Back it up, then\n"
+                    "  `claude-settings build --force` once."
+                )
+        elif live != load(SNAPSHOT):
+            die(
+                f"{LIVE} was edited since the last build (an agent, /permissions, a\n"
+                "  plugin toggle). Run `claude-settings absorb` first — building now would\n"
+                "  discard those edits. `--force` discards them on purpose."
+            )
+
+    write_atomic(LIVE, result)
+    write_atomic(SNAPSHOT, result)
+    print(f"built {LIVE}: {len(public)} public + {len(private)} private keys")
+
+
+def cmd_absorb() -> None:
+    if not SNAPSHOT.exists():
+        die("no previous build recorded; run `claude-settings build` first")
+    live, snap = load(LIVE), load(SNAPSHOT)
+    public, private = load(PUBLIC), load(PRIVATE, required=False)
+
+    changed = sorted(k for k in live.keys() | snap.keys() if live.get(k) != snap.get(k))
+    if not changed:
+        print("nothing to absorb: the live file matches the last build")
+        return
+
+    conflicts = []
+    for key in changed:
+        source = private if key in private else public if key in public else None
+        if source is not None and source.get(key) != snap.get(key):
+            conflicts.append(key)
+    if conflicts:
+        die(
+            "these keys changed BOTH in the live file and in a source since the last\n"
+            "  build; resolve by hand: " + ", ".join(conflicts)
+        )
+
+    moved = {"public": [], "private": []}
+    for key in changed:
+        if key in public:
+            side, target = "public", public
+        else:
+            # Owned by the private overlay, or NEW: new keys default to private
+            # so nothing reaches the public repo without a person promoting it.
+            side, target = "private", private
+        if key in live:
+            target[key] = live[key]
+        else:
+            target.pop(key, None)
+        note = "" if key in snap or key in public or key in private else "  (new key)"
+        moved[side].append(key + note)
+
+    problems = lint_public(public)
+    if problems:
+        die(
+            "absorbing would put private content in the public base; nothing written:\n  - "
+            + "\n  - ".join(problems)
+        )
+    if moved["public"]:
+        write_atomic(PUBLIC, public)
+    if moved["private"]:
+        write_atomic(PRIVATE, private)
+    write_atomic(SNAPSHOT, merged(public, private))
+
+    for side, path in (("public", PUBLIC), ("private", PRIVATE)):
+        if moved[side]:
+            print(f"-> {side} {path}:")
+            for k in moved[side]:
+                print(f"     {k}")
+    print("Review and commit in each repo. A new key belongs in public only if it is")
+    print("safe to publish: move it by hand, then `claude-settings build`.")
+
+
+def cmd_check() -> None:
+    drift = False
+    if not SNAPSHOT.exists():
+        print("no previous build recorded")
+        sys.exit(1)
+    snap = load(SNAPSHOT)
+    if LIVE.is_symlink():
+        print(f"{LIVE} is a symlink; it should be a built file")
+        drift = True
+    live = load(LIVE, required=False)
+    edited = sorted(k for k in live.keys() | snap.keys() if live.get(k) != snap.get(k))
+    if edited:
+        print("edited since last build (run absorb): " + ", ".join(edited))
+        drift = True
+    try:
+        sources = merged(load(PUBLIC), load(PRIVATE, required=False))
+    except SystemExit:
+        raise
+    unbuilt = sorted(k for k in sources.keys() | snap.keys() if sources.get(k) != snap.get(k))
+    if unbuilt:
+        print("sources changed since last build (run build): " + ", ".join(unbuilt))
+        drift = True
+    problems = lint_public(load(PUBLIC))
+    for p in problems:
+        print("public base: " + p)
+        drift = True
+    if not drift:
+        print("in sync")
+    sys.exit(1 if drift else 0)
+
+
+def main(argv: list[str]) -> None:
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "build":
+        cmd_build(force="--force" in rest)
+    elif cmd == "absorb":
+        cmd_absorb()
+    elif cmd == "check":
+        cmd_check()
+    elif cmd == "lint":
+        cmd_lint()
+    else:
+        die(f"unknown command {cmd!r}; see --help", 2)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
