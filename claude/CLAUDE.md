@@ -69,6 +69,12 @@ The wrapper catches the above. These have no safety net:
   Ask only when a _precondition_ of the rule above is genuinely unmet — the
   change is half a larger unit, or the diff carries files you cannot attribute.
   Say which, rather than asking the generic question.
+- **Work already asked for is already approved — do it, don't queue it.** If
+  I asked for something and you deferred it (to wait for agents, a merge, a
+  prerequisite), do it the moment the blocker clears and report it done. Do not
+  end with "with your go-ahead I'll…" for work I already requested. Stated by
+  the user 2026-10-06. Still ask before actions the rules above or the
+  permission system gate (prod deploys, destructive ops, unattributed files).
 
 ## Regression Ratchet
 
