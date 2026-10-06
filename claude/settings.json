@@ -35,7 +35,7 @@
     "mongodb@claude-plugins-official": false,
     "neon@claude-plugins-official": false,
     "playground@claude-plugins-official": false,
-    "playwright@claude-plugins-official": true,
+    "playwright@claude-plugins-official": false,
     "resend@claude-plugins-official": false,
     "save-to-spotify@claude-plugins-official": false,
     "security-guidance@claude-plugins-official": true,
