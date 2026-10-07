@@ -7,25 +7,53 @@ description: This skill should be used when the user shares a local audio file (
 
 ## Overview
 
-Transcribe local audio files to text using `openai/whisper-large-v3-turbo`
-loaded through HuggingFace `transformers` — fully offline once cached
-(~1.5GB at `~/.cache/huggingface/hub/models--openai--whisper-large-v3-turbo`).
+Transcribe local audio files to text with Whisper loaded through
+HuggingFace `transformers` — fully offline once the weights are on disk.
 The Read tool cannot open audio files at all; this skill is the working path.
 
 ## Quick Start
 
 ```bash
-PY=$HOME/git/experiments/OmniVoice/.venv/bin/python3
+PY=$HOME/.local/share/hebrew-stt/.venv/bin/python
 $PY ~/.claude/skills/transcribe-audio/scripts/transcribe_audio.py "/path/to/audio.opus"
 # Force a language (helps accented/multilingual speech):
 $PY ~/.claude/skills/transcribe-audio/scripts/transcribe_audio.py "/path/to/audio.opus" --language english
+# HEBREW: use the ivrit.ai fine-tune, already on disk — far better than stock:
+$PY ~/.claude/skills/transcribe-audio/scripts/transcribe_audio.py "/path/to/audio.m4a" \
+  --language hebrew --model $HOME/.local/share/hebrew-stt/models/ivrit-whisper-large-v3-turbo
 ```
 
 The interpreter matters: the script needs `torch` + `transformers` +
-`soundfile`. The OmniVoice venv above is the known-good environment on this
-machine (transformers 5.x, torch with MPS). If it's gone, any venv with
-those three packages works; `ffmpeg` must be on PATH (`brew install ffmpeg`,
-already installed).
+`soundfile`; `ffmpeg` must be on PATH (installed).
+
+**Everything lives in `~/.local/share/hebrew-stt/`, never `~/.cache`.** On
+2026-10-07 both the old OmniVoice venv and the whole HuggingFace cache under
+`~/.cache` were found gone — a cache folder is exactly what cleanup tools
+empty. The venv and the models now sit together in the durable folder.
+
+Rebuild the venv byte-for-byte from the lock beside this file — Python 3.12,
+because the system Python is 3.14 and torch wheels lag:
+
+```bash
+D=~/.local/share/hebrew-stt; mkdir -p $D && cd $D && uv venv --python 3.12 .venv
+uv pip sync --python .venv/bin/python ~/.claude/skills/transcribe-audio/requirements.lock.txt
+```
+
+(`requirements.lock.txt`: torch 2.14.1 with MPS, transformers 5.19.0 — the
+set the Hebrew model was tested with.)
+
+**Models on disk** (plain directories — pass the path as `--model`):
+
+- `~/.local/share/hebrew-stt/models/ivrit-whisper-large-v3-turbo` — `ivrit-ai/whisper-large-v3-turbo`,
+  3.2 GB. For Hebrew speech. Tested on a Torah Or shiur: clean, punctuated
+  Hebrew; ~16 s for a 60 s clip including model load. Slips on Chassidic
+  terms ("והדימור הזקן" for "ואדמו"ר הזקן"). In a batch with the model
+  loaded once: ~9.5x real time. Re-download (the curl recipe below, repo
+  `ivrit-ai/whisper-large-v3-turbo`) into that same directory if it is lost.
+  No off-machine copy is kept yet.
+- The stock `openai/whisper-large-v3-turbo` is NOT cached any more; it
+  downloads ~1.5 GB on first use. Fetch it with curl (below) if the Python
+  downloader stalls.
 
 ## Environment discovery — don't repeat these dead ends
 
@@ -94,10 +122,10 @@ already installed).
 - **HuggingFace downloads via Python can stall or die while the network is
   fine.** Observed 2026-07-08: `snapshot_download` sat at 4.4MB for 40+
   minutes, and in a background shell died with `httpx.ConnectError: Bad
-  file descriptor` — while a plain `curl` to the same host ran at 2MB/s.
+file descriptor` — while a plain `curl` to the same host ran at 2MB/s.
   Diagnose with a ranged curl
   (`curl -sL -o /dev/null -w "%{speed_download} B/s" -r 0-2097151
-  https://huggingface.co/<repo>/resolve/main/model.safetensors`); if that's
+https://huggingface.co/<repo>/resolve/main/model.safetensors`); if that's
   fast, skip the Python downloader entirely and curl the files into a plain
   directory, then pass it as `--model <dir>`:
 
@@ -113,8 +141,8 @@ already installed).
   ```
 
   `transformers` loads a local directory path exactly like a hub id, so
-  `--model $D` just works. (whisper-large-v3 weights already live at
-  `~/.cache/whisper-large-v3-local/` on this machine from that incident.)
+  `--model $D` just works. (That directory was gone by 2026-10-07 — re-run
+  the recipe if you need the full large-v3.)
 
 ## Self-upgrade rule
 
