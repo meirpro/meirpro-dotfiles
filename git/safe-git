@@ -72,6 +72,9 @@
 #      and it was mistaken for a second project). Relative paths are
 #      resolved against the cwd before the check, so `../foo` can't
 #      sneak out. Bypass: `GIT_UNSAFE_BRANCH=1`.
+#      A successful add there also PROVISIONS `node_modules` (see the
+#      end of rule 9) — a fresh worktree has none, and every agent was
+#      hand-rolling a symlink, which `cap sync` then breaks.
 #  10. Rewriting the commit identity — refused, in all three forms:
 #      `-c user.email=` / `-c user.name=` / `-c author.*` / `-c
 #      committer.*` (any subcommand), `git commit --author=`, and the
@@ -852,6 +855,46 @@ if [ "$SUBCMD" = "worktree" ]; then
    GIT_UNSAFE_BRANCH=1 git $(printf '%q ' "$@" | sed 's/ $//')" "$@"
                 ;;
         esac
+
+        # Provision node_modules (2026-10-08). A worktree materialises
+        # tracked files only, so it starts with no node_modules, and
+        # `npm ci` there costs minutes for an identical tree. Agents
+        # worked around it with `ln -s`, which has two problems:
+        # `cap sync` resolves the link and rewrites the COMMITTED
+        # android/capacitor.settings.gradle (dirty tree → release build
+        # refuses, 2026-09-16), and an `npm install` in the worktree
+        # mutates the main checkout's tree under every other session.
+        #
+        # So CLONE, don't link: `cp -c` is an APFS clonefile — a real,
+        # independent directory that shares blocks until written, so it
+        # costs no disk. Only if cloning is impossible (not APFS) fall
+        # back to the symlink, and say what that costs.
+        #
+        # Source is the MAIN checkout (parent of the common git dir),
+        # not $toplevel: run from inside another worktree, $toplevel's
+        # node_modules may itself be one of those symlinks.
+        # Opt out: SAFE_GIT_NO_NODE_MODULES=1.
+        if [ "$abs_wt" != "${abs_wt#"$allowed"/}" ] && [ -z "${SAFE_GIT_NO_NODE_MODULES:-}" ]; then
+            "$REAL_GIT" "$@"
+            rc=$?
+            [ "$rc" = "0" ] || exit "$rc"
+            common="$("$REAL_GIT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+            src="${common%/.git}/node_modules"
+            [ -d "$src" ] && [ ! -L "$src" ] || src="$toplevel/node_modules"
+            dst="$abs_wt/node_modules"
+            if [ -d "$src" ] && [ -f "$abs_wt/package.json" ] && [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
+                printf 'safe-git: cloning node_modules into the worktree (APFS clone, no extra disk)…\n' >&2
+                if cp -Rc "$src" "$dst" 2>/dev/null; then
+                    printf 'safe-git: node_modules ready at %s\n' "$dst" >&2
+                else
+                    # Remove only the partial clone this run just made.
+                    rm -rf "$dst"
+                    ln -s "$src" "$dst"
+                    printf 'safe-git: clone failed — SYMLINKED node_modules instead.\n  ⚠ cap sync rewrites android/capacitor.settings.gradle through a link; before a release build:\n    rm %s && npm ci\n' "$dst" >&2
+                fi
+            fi
+            exit 0
+        fi
     fi
 fi
 
