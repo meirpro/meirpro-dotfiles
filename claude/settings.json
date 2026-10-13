@@ -47,7 +47,14 @@
     "taste-skill@taste-skill": false,
     "typescript-lsp@claude-plugins-official": true,
     "ui-ux-pro-max@ui-ux-pro-max-skill": true,
-    "vercel@claude-plugins-official": false
+    "vercel@claude-plugins-official": false,
+    "mcp-server-dev@anthropic-plugin-directory": true,
+    "skill-creator@anthropic-plugin-directory": false,
+    "feature-dev@anthropic-plugin-directory": false,
+    "plugin-dev@anthropic-plugin-directory": false,
+    "mcp-apps@anthropic-plugin-directory": false,
+    "mcp-tunnels@anthropic-plugin-directory": false,
+    "google-cloud-storage@claude-plugins-official": false
   },
   "env": {
     "CLAUDE_CODE_ENABLE_TELEMETRY": "0"
