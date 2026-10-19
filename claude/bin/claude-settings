@@ -23,17 +23,24 @@ Why a build and not a symlink
     the two copies drifted apart for over a month in both directions.
 
 Rules
-  * Every top-level key has ONE owner. `build` refuses a key present in both
-    sources, so nothing is ever deep-merged (permission and hook ARRAYS have no
-    safe merge).
+  * Every top-level key has ONE owner, with three exceptions that are merged
+    at ENTRY level because both halves legitimately contribute to them:
+    `hooks` (per event, public groups first, then private), `enabledPlugins`
+    and `extraKnownMarketplaces` (maps). An entry present in both sources is
+    refused, so each entry still has exactly one owner. Everything else —
+    permission arrays in particular — is never deep-merged.
+    Private hook scripts live in meirpro-machine/claude/hooks, linked at
+    ~/.claude/hooks.private; the public ones stay at ~/.claude/hooks.
   * Agents edit ~/.claude/settings.json directly (/permissions, plugin
     toggles). `build` therefore REFUSES when the live file differs from the
     last build — run `absorb` first — because overwriting it would silently
     discard those edits. `--force` skips the check, deliberately.
   * `absorb` sends each changed key to the file that owns it. A NEW key nobody
     owns goes to the PRIVATE file (printed), so nothing lands in a public repo
-    without a person promoting it. If a source changed since the build too,
-    it stops and names the key.
+    without a person promoting it. For the merged keys the same rule applies
+    per entry: a hook group or plugin an installer added to the live file goes
+    private, an entry that vanished is removed from whichever file held it. If
+    a source changed since the build too, it stops and names the key.
   * Comparisons are on parsed JSON, never text: a formatter hook re-indents
     the live file on every agent edit.
   * The public base is linted on every write: no `autoMode`, no `remote`, no
@@ -131,15 +138,50 @@ def lint_public(public: dict) -> list[str]:
     return problems
 
 
-def merged(public: dict, private: dict) -> dict:
+# Keys both sources may hold; merged entry by entry (see the module docstring).
+MERGED_LIST_KEYS = {"hooks"}  # {event: [group, ...]}
+MERGED_MAP_KEYS = {"enabledPlugins", "extraKnownMarketplaces"}
+
+
+def _entry_id(entry) -> str:
+    return json.dumps(entry, sort_keys=True, ensure_ascii=False)
+
+
+def merge_hooks(public: dict, private: dict) -> dict:
+    out = {}
+    for event in list(public) + [e for e in private if e not in public]:
+        pub, priv = public.get(event, []), private.get(event, [])
+        dupes = {_entry_id(g) for g in pub} & {_entry_id(g) for g in priv}
+        if dupes:
+            die(f"`hooks.{event}` has the same group in BOTH sources: {sorted(dupes)[0][:80]}…")
+        out[event] = list(pub) + list(priv)
+    return out
+
+
+def merge_map(key: str, public: dict, private: dict) -> dict:
     both = sorted(public.keys() & private.keys())
     if both:
+        die(f"`{key}` has these entries in BOTH sources: " + ", ".join(both))
+    out = dict(public)
+    out.update(private)
+    return out
+
+
+def merged(public: dict, private: dict) -> dict:
+    both = sorted(public.keys() & private.keys())
+    unmergeable = [k for k in both if k not in MERGED_LIST_KEYS | MERGED_MAP_KEYS]
+    if unmergeable:
         die(
             "a key may have only one owner, but these are in BOTH sources: "
-            + ", ".join(both)
+            + ", ".join(unmergeable)
         )
     out = dict(public)
     out.update(private)
+    for key in both:
+        if key in MERGED_LIST_KEYS:
+            out[key] = merge_hooks(public[key], private[key])
+        else:
+            out[key] = merge_map(key, public[key], private[key])
     return out
 
 
@@ -186,6 +228,58 @@ def cmd_build(force: bool) -> None:
     print(f"built {LIVE}: {len(public)} public + {len(private)} private keys")
 
 
+def absorb_merged(key: str, live, snap, public: dict, private: dict) -> list:
+    """Route each changed ENTRY of a merged key to the file that owns it.
+    Returns [(side, description), ...]. Public keeps what it had; a new entry
+    is private; a removed entry leaves whichever file held it."""
+    moved = []
+    if key in MERGED_LIST_KEYS:
+        live, snap = live or {}, snap or {}
+        for event in sorted(set(live) | set(snap)):
+            before = {_entry_id(g): g for g in snap.get(event, [])}
+            after = {_entry_id(g): g for g in live.get(event, [])}
+            pub = public[key].setdefault(event, [])
+            priv = private[key].setdefault(event, [])
+            for gid, group in after.items():
+                if gid not in before:
+                    priv.append(group)
+                    moved.append(("private", f"{event} +{group_label(group)}  (new entry)"))
+            for gid, group in before.items():
+                if gid not in after:
+                    for side, groups in (("public", pub), ("private", priv)):
+                        kept = [g for g in groups if _entry_id(g) != gid]
+                        if len(kept) != len(groups):
+                            groups[:] = kept
+                            moved.append((side, f"{event} -{group_label(group)}"))
+            if not pub:
+                public[key].pop(event, None)
+            if not priv:
+                private[key].pop(event, None)
+    else:
+        live, snap = live or {}, snap or {}
+        for name in sorted(set(live) | set(snap)):
+            if live.get(name) == snap.get(name):
+                continue
+            if name in public[key]:
+                side, target = "public", public[key]
+            else:
+                side, target = "private", private[key]
+            if name in live:
+                target[name] = live[name]
+                note = "" if name in snap else "  (new entry)"
+                moved.append((side, name + note))
+            else:
+                target.pop(name, None)
+                moved.append((side, f"-{name}"))
+    return moved
+
+
+def group_label(group) -> str:
+    cmds = [h.get("command", "?") for h in group.get("hooks", [])] if isinstance(group, dict) else []
+    label = " | ".join(cmds) or _entry_id(group)
+    return label[:70] + ("…" if len(label) > 70 else "")
+
+
 def cmd_absorb() -> None:
     if not SNAPSHOT.exists():
         die("no previous build recorded; run `claude-settings build` first")
@@ -198,9 +292,9 @@ def cmd_absorb() -> None:
         return
 
     conflicts = []
+    sources = merged(public, private)
     for key in changed:
-        source = private if key in private else public if key in public else None
-        if source is not None and source.get(key) != snap.get(key):
+        if key in sources and sources.get(key) != snap.get(key):
             conflicts.append(key)
     if conflicts:
         die(
@@ -210,6 +304,15 @@ def cmd_absorb() -> None:
 
     moved = {"public": [], "private": []}
     for key in changed:
+        if key in MERGED_LIST_KEYS | MERGED_MAP_KEYS:
+            public.setdefault(key, {})
+            private.setdefault(key, {})
+            for side, what in absorb_merged(key, live.get(key), snap.get(key), public, private):
+                moved[side].append(f"{key}: {what}")
+            for src in (public, private):
+                if not src[key]:
+                    del src[key]
+            continue
         if key in public:
             side, target = "public", public
         else:

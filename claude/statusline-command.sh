@@ -11,7 +11,7 @@ input=$(cat)
 _vi_usage_enabled=$(/usr/bin/defaults read app.vibeisland.macos showUsage 2>/dev/null || echo 0)
 if [ "$_vi_usage_enabled" = "1" ] || [ "$_vi_usage_enabled" = "true" ] || [ "$_vi_usage_enabled" = "TRUE" ]; then
   _rl=$(echo "$input" | jq -c '.rate_limits // empty' 2>/dev/null)
-  [ -n "$_rl" ] && mkdir -p "$(dirname "/Users/meirpro/.vibe-island/cache/rl.json")" 2>/dev/null && printf '%s\n' "$_rl" > "/Users/meirpro/.vibe-island/cache/rl.json"
+  [ -n "$_rl" ] && mkdir -p "$(dirname "$HOME/.vibe-island/cache/rl.json")" 2>/dev/null && printf '%s\n' "$_rl" > "$HOME/.vibe-island/cache/rl.json"
 fi
 # ── End Vibe Island bridge ─────────────────────────────
 

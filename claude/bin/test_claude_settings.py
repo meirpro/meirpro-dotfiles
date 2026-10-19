@@ -194,5 +194,81 @@ class Lint(unittest.TestCase):
         self.assertEqual(Env(PUB, {}).run("lint").returncode, 0)
 
 
+G_PUB = {"hooks": [{"type": "command", "command": "bash ~/.claude/hooks/ts_check.sh"}]}
+G_PRIV = {"hooks": [{"type": "command", "command": "bash ~/.claude/hooks.private/tracker.sh"}]}
+G_NEW = {"hooks": [{"type": "command", "command": "~/.vibe-island/bin/bridge"}]}
+MPUB = {**PUB, "hooks": {"Stop": [G_PUB]}, "enabledPlugins": {"a@m": True}}
+MPRIV = {**PRIV, "hooks": {"Stop": [G_PRIV], "SessionEnd": [G_PRIV]}, "enabledPlugins": {"mine@private": False}}
+
+
+class MergedKeys(unittest.TestCase):
+    """`hooks`, `enabledPlugins`, `extraKnownMarketplaces` may be in both sources;
+    they merge entry by entry and absorb entry by entry."""
+
+    def built(self) -> Env:
+        e = Env(MPUB, MPRIV)
+        self.assertEqual(e.run("build").returncode, 0)
+        return e
+
+    def edit_live(self, e: Env, fn) -> None:
+        live = e.read(e.live)
+        fn(live)
+        e.live.write_text(json.dumps(live, indent="\t"))
+
+    def test_hooks_merge_per_event_public_first(self):
+        e = self.built()
+        live = e.read(e.live)
+        self.assertEqual(live["hooks"]["Stop"], [G_PUB, G_PRIV])
+        self.assertEqual(live["hooks"]["SessionEnd"], [G_PRIV])
+        self.assertEqual(live["enabledPlugins"], {"a@m": True, "mine@private": False})
+
+    def test_refuses_the_same_hook_group_in_both(self):
+        e = Env(MPUB, {**MPRIV, "hooks": {"Stop": [G_PUB]}})
+        r = e.run("build")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("hooks.Stop", r.stderr)
+
+    def test_refuses_the_same_plugin_in_both(self):
+        e = Env(MPUB, {**MPRIV, "enabledPlugins": {"a@m": False}})
+        r = e.run("build")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("a@m", r.stderr)
+
+    def test_a_hook_an_installer_added_goes_private(self):
+        e = self.built()
+        self.edit_live(e, lambda d: d["hooks"].__setitem__("Notification", [G_NEW]))
+        r = e.run("absorb")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("new entry", r.stdout)
+        self.assertEqual(e.read(e.private)["hooks"]["Notification"], [G_NEW])
+        self.assertEqual(e.read(e.public)["hooks"], MPUB["hooks"])
+        self.assertEqual(e.run("build").returncode, 0)
+
+    def test_a_removed_hook_leaves_its_owner_only(self):
+        e = self.built()
+        self.edit_live(e, lambda d: d["hooks"].__setitem__("Stop", [G_PRIV]))  # public group gone
+        r = e.run("absorb")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("Stop", e.read(e.public).get("hooks", {}))
+        self.assertEqual(e.read(e.private)["hooks"], MPRIV["hooks"])
+
+    def test_a_public_plugin_toggle_goes_public_a_new_plugin_goes_private(self):
+        e = self.built()
+        self.edit_live(e, lambda d: d["enabledPlugins"].update({"a@m": False, "fresh@m": True}))
+        r = e.run("absorb")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(e.read(e.public)["enabledPlugins"], {"a@m": False})
+        self.assertEqual(e.read(e.private)["enabledPlugins"], {"mine@private": False, "fresh@m": True})
+
+    def test_a_new_hook_goes_private_even_when_private_had_none(self):
+        e = Env({**PUB, "hooks": {"Stop": [G_PUB]}}, PRIV)
+        self.assertEqual(e.run("build").returncode, 0)
+        self.edit_live(e, lambda d: d["hooks"]["Stop"].append(G_NEW))
+        r = e.run("absorb")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(e.read(e.private)["hooks"], {"Stop": [G_NEW]})
+        self.assertEqual(e.read(e.public)["hooks"], {"Stop": [G_PUB]})
+
+
 if __name__ == "__main__":
     unittest.main()

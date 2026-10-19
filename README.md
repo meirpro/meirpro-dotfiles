@@ -18,7 +18,9 @@ meirpro-dotfiles/
 │   ├── agents/          # Custom Claude Code agents (12 specialized agents)
 │   ├── audio/           # Notification sounds
 │   ├── commands/        # Slash commands
-│   ├── hooks/           # Event hooks (TypeScript checks, linting, etc.)
+│   ├── hooks/           # Event hooks (TypeScript checks, linting, guards) — generic only
+│   ├── skills/          # Global skills (symlinked into ~/.claude/skills)
+│   ├── bin/             # claude-settings builder (public base + private overlay)
 │   ├── claude.json      # MCP server configuration
 │   ├── CLAUDE.md        # Global instructions for Claude
 │   ├── settings.json    # Main Claude Code settings
@@ -189,10 +191,19 @@ Displays comprehensive session information:
 Example: `SweetRoboTeam on main (Sonnet 4.5) 🔑 40d7da24 💰$0.59 📝 +107/-26 ⏱️ 10h29m (API: 15m22s)`
 
 #### Hooks
-- **PostToolUse**: Automatic TypeScript checking and linting after file edits
-- **PreToolUse**: Bash command logging
-- **Notification**: Audio notifications for task completion
-- **Code Formatting**: Automatic code formatting on file changes
+- **PostToolUse**: TypeScript check, ESLint and Prettier after every file edit; truncation guard after Bash
+- **PreToolUse**: Bash command logging, `.env`/secrets read guard, truncation guard, a guard for a common typo of the `.claude` path
+- **SessionStart**: get-to-the-point and code-discovery reminders
+- **Notification**: optional audio notifications (`claude/audio`)
+
+Everything in `claude/hooks/` is generic — it runs the same on any machine.
+Personal plumbing (session time tracking, the command-center wrap-up queue,
+the Vibe Island bridge, private marketplaces) is **not** in this repo: it lives
+in a private overlay and is merged into `~/.claude/settings.json` at build
+time by `claude/bin/claude-settings`, which merges `hooks`, `enabledPlugins`
+and `extraKnownMarketplaces` entry by entry (public first, then private) and
+refuses everything else that appears in both. Private hook scripts sit at
+`~/.claude/hooks.private/`; the public ones at `~/.claude/hooks/`.
 
 #### Slash Commands
 - `/commit-emoji` - Creates well-formatted commits with conventional commit messages and emoji
@@ -453,11 +464,18 @@ Both edit the same file! Commit your changes from the repo directory.
 
 For settings you don't want to commit:
 
-**Claude Code:**
+**Claude Code:** `~/.claude/settings.json` is *built*, not linked. Put private
+keys (`autoMode`, `remote`, personal hooks, private marketplaces) in your own
+overlay file and point the builder at it:
+
 ```bash
-# Create local settings file (gitignored)
-vim ~/.claude/settings.local.json
+CLAUDE_SETTINGS_PRIVATE=~/path/to/settings.private.json claude/bin/claude-settings build
+# later, after /permissions or a plugin toggle edited the live file:
+claude/bin/claude-settings absorb   # sends each change back to the file that owns it
 ```
+
+Without an overlay, `build` uses the public base alone and says so. Private hook
+scripts referenced from the overlay belong at `~/.claude/hooks.private/`.
 
 **Shell:**
 ```bash

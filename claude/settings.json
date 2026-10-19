@@ -30,7 +30,6 @@
     "hookify@claude-plugins-official": false,
     "hyperframes@claude-plugins-official": false,
     "impeccable@impeccable": false,
-    "kiosk-standard@kiosk-standard-dev": false,
     "mapbox@claude-plugins-official": false,
     "mongodb@claude-plugins-official": false,
     "neon@claude-plugins-official": false,
@@ -66,12 +65,6 @@
         "source": "github"
       }
     },
-    "kiosk-standard-dev": {
-      "source": {
-        "source": "github",
-        "repo": "meirpro/kiosk-standard"
-      }
-    },
     "marketingskills": {
       "source": {
         "repo": "coreyhaines31/marketingskills",
@@ -92,39 +85,7 @@
     }
   },
   "hooks": {
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ],
-        "matcher": "*"
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "timeout": 86400,
-            "type": "command"
-          }
-        ],
-        "matcher": "*"
-      }
-    ],
     "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ],
-        "matcher": "*"
-      },
       {
         "hooks": [
           {
@@ -162,26 +123,7 @@
         "matcher": "Bash"
       }
     ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ],
-        "matcher": "*"
-      },
       {
         "hooks": [
           {
@@ -228,33 +170,7 @@
         "matcher": "Bash"
       }
     ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "command": "bash ~/.claude/hooks/wrapup-enqueue.sh",
-            "type": "command"
-          }
-        ]
-      }
-    ],
     "SessionStart": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ]
-      },
       {
         "hooks": [
           {
@@ -272,96 +188,6 @@
           }
         ],
         "matcher": "startup|resume|clear|compact"
-      },
-      {
-        "hooks": [
-          {
-            "command": "bash ~/.claude/hooks/session_tracker.sh",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "command": "~/git/claude_timings_wrapper/hooks/claude-timing-stop.sh",
-            "type": "command"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "command": "bash ~/.claude/hooks/session_heartbeat.sh",
-            "type": "command"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "command": "bash ~/.claude/hooks/wrapup-enqueue.sh",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "StopFailure": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && \"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
-            "type": "command"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "command": "~/git/claude_timings_wrapper/hooks/claude-timing-start.sh",
-            "type": "command"
-          }
-        ]
       }
     ]
   },

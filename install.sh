@@ -128,6 +128,15 @@ if [[ $INSTALL_CHOICE =~ ^[13]$ ]]; then
     echo -e "${YELLOW}Creating symlinks for directories...${NC}"
     create_symlink "$REPO_DIR/claude/hooks" "$CLAUDE_DIR/hooks" "hooks/"
     create_symlink "$REPO_DIR/claude/commands" "$CLAUDE_DIR/commands" "commands/"
+    # Skills are linked one by one, not as a directory: ~/.claude/skills also
+    # holds skills installed by other tools, which a directory link would hide.
+    if [ -d "$REPO_DIR/claude/skills" ]; then
+        mkdir -p "$CLAUDE_DIR/skills"
+        for skill in "$REPO_DIR/claude/skills"/*/; do
+            create_symlink "${skill%/}" "$CLAUDE_DIR/skills/$(basename "$skill")" "skills/$(basename "$skill")"
+        done
+        create_symlink "$REPO_DIR/claude/skills/CLAUDE.md" "$CLAUDE_DIR/skills/CLAUDE.md" "skills/CLAUDE.md"
+    fi
     if [ -d "$REPO_DIR/claude/agents" ]; then
         create_symlink "$REPO_DIR/claude/agents" "$CLAUDE_DIR/agents" "agents/"
     fi
