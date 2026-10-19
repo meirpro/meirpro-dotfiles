@@ -12,3 +12,7 @@ export HF_HUB_DISABLE_TELEMETRY=1
 # process — see claude/claude-wrapper. GUI apps (Claude desktop) never
 # inherited this anyway; shell exports don't reach Finder/Dock launches.
 export DO_NOT_TRACK=1
+
+# Added by OrbStack: command-line tools and integration
+# This won't be added again if you remove it.
+source ~/.orbstack/shell/init.zsh 2>/dev/null || :
