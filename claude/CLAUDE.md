@@ -202,6 +202,25 @@ Before starting a dev server, check whether one is already running. Find the
 port in `package.json` scripts (or `vite.config.ts`, `wrangler.toml`), then
 `lsof -ti :<port>`. If it's in use, use the existing server.
 
+## Reading OpenAI docs
+
+WebFetch gets **403** on `help.openai.com`, `openai.com/api/pricing` and
+`platform.openai.com/docs`, because they block Claude's user agent. A 403 is
+not "the docs say nothing". `developers.openai.com` is the docs site that works:
+fetch it with curl and a browser user agent, and append `.md` to any page for
+clean markdown (the full index is at `/llms.txt`). Measured 2026-10-30.
+
+```bash
+UA='Mozilla/5.0 (Macintosh) Chrome/130.0 Safari/537.36'
+curl -sL -A "$UA" https://developers.openai.com/api/docs/pricing.md
+curl -sL -A "$UA" https://developers.openai.com/api/docs/guides/priority-processing.md
+curl -sL -A "$UA" https://developers.openai.com/llms.txt          # find a page
+```
+
+`help.openai.com` (the FAQs) refuses even the browser user agent. Read those
+in a real browser, or use the matching `developers.openai.com` guide. The
+`.html` pages carry ~400 KB of navigation, so always take the `.md`.
+
 ## MCP Server Config
 
 **Never pin a stdio MCP server to `npx …@latest`.** Claude Code spawns stdio
