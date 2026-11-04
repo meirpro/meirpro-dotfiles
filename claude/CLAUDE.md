@@ -45,6 +45,15 @@ The wrapper catches the above. These have no safety net:
   Same for any scratch checkout meant to outlive one command. Caveat: a nested
   worktree is edit isolation, **not** the test oracle — run the authoritative
   suite in the main checkout or CI.
+- **Clean up your own mess — never hand it to me.** Once your branch is
+  merged, remove the worktree you created (`git worktree remove`, then
+  `git branch -d`) before you finish. Do the same for any scratch file, dev
+  server, simulator or temp branch you started. Never end with "run this to
+  clean up". If the session's cwd is that worktree, run the removal from the
+  main checkout path. Check first that `git -C <wt> status --short` is empty
+  and the branch is an ancestor of `origin/<main>`. Touch only what you
+  created: other worktrees belong to other sessions. Stated by the user
+  2026-11-04, after an agent left a merged worktree and told them to remove it.
 - **Never drop a git stash.** If `git stash pop` conflicts, resolve it. A
   dropped stash is irrecoverable. For conflicts in unrelated files, use
   `git checkout --theirs <file>` then pop again, or
