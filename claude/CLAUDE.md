@@ -84,6 +84,16 @@ The wrapper catches the above. These have no safety net:
   end with "with your go-ahead I'll…" for work I already requested. Stated by
   the user 2026-10-06. Still ask before actions the rules above or the
   permission system gate (prod deploys, destructive ops, unattributed files).
+- **Never write "I'll check X" when you could check X now.** Any read-only
+  lookup a question or a proposal depends on (a setting, a list, a log, a
+  file, a live value) is done BEFORE you message me, and the message carries
+  the answer, not a promise to look. "I'll check what the other two have
+  before writing" costs me a round trip for something you could have known.
+  Stated by the user 2026-11-04 ("i never want to hear 'i will check' when you
+  could have already checked before i even had a chance to answer you").
+  Only a check you genuinely cannot run yet (it needs my go, a device in hand,
+  or a step that has not happened) may be named as pending — and then say
+  why.
 
 ## Regression Ratchet
 
