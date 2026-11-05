@@ -62,6 +62,9 @@ check 0 'echo "<div class=x>report.apk</div>"'
 check 0 "grep -o 'a>b' notes.txt"
 # No redirect at all.
 check 0 'git log --oneline -1'
+# A device as the target: /dev/null is an argument AND the redirect (2026-11-04).
+check 0 'diff /dev/null new.txt > /dev/null'
+check 0 'cmp -s /dev/null x.bin >/dev/null && echo same'
 
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"

@@ -135,6 +135,12 @@ MSG
     target="${target#\"}"
     target="${target%\'}"
     target="${target#\'}"
+    # A device is never truncated by a redirect. `/dev/null` is also an
+    # ordinary argument (`diff /dev/null new.txt > /dev/null`), so it showed up
+    # in `before` and the command was refused (false positive, 2026-11-04).
+    case "$target" in
+      /dev/*) target="" ;;
+    esac
   fi
 
   if [ -n "$target" ] && printf '%s' "$target" | grep -Eq '[./]' && ! printf '%s' "$target" | grep -q '^-'; then
