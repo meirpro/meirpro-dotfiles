@@ -7,6 +7,19 @@
 > plumbing) do **not** belong here — this repo is public. They live in the
 > private `meirpro-machine` repo, which imports this file.
 
+## Critical rules
+
+- **When one thing is critical now and another is about to be, push me to do
+  both at once.** If handling them in the same pass saves more than 5 minutes,
+  put the second one in the SAME numbered steps as the first. Typical savings:
+  a sign-in or passkey prompt I already passed, a page that is already open, a
+  deploy that is already running. Don't save the second one for a "still open"
+  line or an offer at the end. Say plainly: "do this one too, right now, while
+  you're here." Stated by the user 2026-11-05: two tokens on the same GitHub
+  page expired one day apart. The agent renewed the expired one and offered
+  the other as a follow-up. The next day it meant a second passkey prompt, a
+  second trip through the same pages, and a watchdog that was down in between.
+
 ## Git Safety
 
 > ⚠ The four staging rules and the branch-move ban are **enforced at the binary
