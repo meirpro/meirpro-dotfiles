@@ -14,7 +14,7 @@
     "aws-dev-toolkit@claude-plugins-official": false,
     "aws-serverless@claude-plugins-official": false,
     "aws-startup-advisor@claude-plugins-official": false,
-    "browser-use@claude-plugins-official": true,
+    "browser-use@claude-plugins-official": false,
     "chrome-devtools-mcp@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
@@ -45,7 +45,7 @@
     "superpowers@claude-plugins-official": true,
     "taste-skill@taste-skill": false,
     "typescript-lsp@claude-plugins-official": true,
-    "ui-ux-pro-max@ui-ux-pro-max-skill": true,
+    "ui-ux-pro-max@ui-ux-pro-max-skill": false,
     "vercel@claude-plugins-official": false,
     "mcp-server-dev@anthropic-plugin-directory": true,
     "skill-creator@anthropic-plugin-directory": false,
@@ -179,15 +179,6 @@
           }
         ],
         "matcher": "startup|resume|clear|compact"
-      },
-      {
-        "hooks": [
-          {
-            "command": "~/.claude/hooks/cbm-session-reminder",
-            "type": "command"
-          }
-        ],
-        "matcher": "startup|resume|clear|compact"
       }
     ]
   },
@@ -235,6 +226,7 @@
   },
   "remoteControlAtStartup": false,
   "skillOverrides": {
+    "agent-email-inbox": "name-only",
     "agents-sdk": "off",
     "animate": "name-only",
     "animate-expo": "name-only",
@@ -251,6 +243,7 @@
     "disk-forensics": "name-only",
     "disk-imaging-dd": "name-only",
     "durable-objects": "off",
+    "email-best-practices": "name-only",
     "emil-design-eng": "name-only",
     "find-animation-opportunities": "name-only",
     "get-to-the-point": "name-only",
@@ -263,6 +256,9 @@
     "pick-ui-library": "name-only",
     "pptx": "name-only",
     "prototype": "name-only",
+    "react-email": "name-only",
+    "resend": "name-only",
+    "resend-cli": "name-only",
     "reverse-engineer-anything": "name-only",
     "review-animations": "name-only",
     "sandbox-migrate-to-next": "name-only",
