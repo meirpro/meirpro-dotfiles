@@ -7,6 +7,9 @@ PRIVATE overlay, and fold agents' edits of the built file back into them.
     claude-settings absorb            live edits -> the file that owns each key
     claude-settings check             report drift, exit 1 if any
     claude-settings lint              fail if the public base holds anything private
+    claude-settings revert-hooks RE   undo an app's rewrite of its own hook entries:
+                                      exit 0 nothing to do, 3 restored the last
+                                      build, 1 other edits too (left alone)
 
 Sources
     public   meirpro-dotfiles/claude/settings.json        (this repo, PUBLIC)
@@ -378,6 +381,91 @@ def cmd_check() -> None:
     sys.exit(1 if drift else 0)
 
 
+def _hook_commands(settings: dict, pattern: re.Pattern) -> list[str]:
+    """Every hook command in `settings` that matches `pattern`, as event: command."""
+    found = []
+    for event, groups in (settings.get("hooks") or {}).items():
+        for group in groups if isinstance(groups, list) else []:
+            for hook in group.get("hooks", []) if isinstance(group, dict) else []:
+                cmd = str(hook.get("command", ""))
+                if pattern.search(cmd):
+                    found.append(f"{event}: {cmd}")
+    return found
+
+
+def _without_hooks(settings: dict, pattern: re.Pattern) -> dict:
+    """`settings` with every hook whose command matches `pattern` taken out,
+    and any group or event that leaves empty dropped too."""
+    out = dict(settings)
+    hooks = {}
+    for event, groups in (settings.get("hooks") or {}).items():
+        kept = []
+        for group in groups if isinstance(groups, list) else []:
+            if not isinstance(group, dict):
+                kept.append(group)
+                continue
+            rest = [h for h in group.get("hooks", []) if not pattern.search(str(h.get("command", "")))]
+            if rest:
+                kept.append({**group, "hooks": rest})
+        if kept:
+            hooks[event] = kept
+    out.pop("hooks", None)
+    if hooks:
+        out["hooks"] = hooks
+    return out
+
+
+def cmd_revert_hooks(pattern_text: str) -> None:
+    """Restore the last build when the ONLY edits to the live file are hook
+    entries matching `pattern_text`; leave every other edit alone.
+
+    Why (2026-11-05): Vibe Island's "Repair hooks" button (and a reinstall)
+    writes its own UNGATED hook entries into ~/.claude/settings.json, undoing
+    the gate that made each of its 12 hooks 11.5 ms instead of 38 ms when the
+    app is closed. `build --force` would undo that too, but it also throws
+    away every other unabsorbed edit (a /permissions change, a plugin toggle),
+    so this reverts only when nothing but those entries changed.
+
+    Exit 0: nothing to do. Exit 3: restored (said on stdout). Exit 1: other
+    edits are there too, so nothing was touched; run `absorb` or `build`."""
+    try:
+        pattern = re.compile(pattern_text)
+    except re.error as e:
+        die(f"bad pattern {pattern_text!r}: {e}", 2)
+    if not SNAPSHOT.exists():
+        print("no previous build recorded, so there is nothing to restore")
+        sys.exit(1)
+    if LIVE.is_symlink():
+        print(f"{LIVE} is a symlink; it should be a built file. Run `claude-settings build --force`.")
+        sys.exit(1)
+    snap = load(SNAPSHOT)
+    live = load(LIVE, required=False)
+    if live == snap:
+        sys.exit(0)
+
+    before, after = _hook_commands(snap, pattern), _hook_commands(live, pattern)
+    added = [c for c in after if c not in before]
+    removed = [c for c in before if c not in after]
+    if _without_hooks(live, pattern) != _without_hooks(snap, pattern):
+        edited = sorted(k for k in live.keys() | snap.keys() if live.get(k) != snap.get(k))
+        also = f" Hook entries matching {pattern_text!r} changed too." if (added or removed) else ""
+        print(
+            f"{LIVE} was edited since the last build ({', '.join(edited)}), not only "
+            f"hook entries matching {pattern_text!r}, so nothing was reverted.{also} "
+            "Run `claude-settings absorb` to keep the edits, or `claude-settings build --force` to drop them."
+        )
+        sys.exit(1)
+
+    write_atomic(LIVE, snap)
+    sample = (added or removed or ["only their order or grouping changed"])[0]
+    print(
+        f"Something rewrote the hook entries matching {pattern_text!r} in {LIVE} "
+        f"({len(added)} added, {len(removed)} removed, e.g. {sample[:110]}). "
+        "Restored the last build; nothing else had changed."
+    )
+    sys.exit(3)
+
+
 def main(argv: list[str]) -> None:
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -391,6 +479,10 @@ def main(argv: list[str]) -> None:
         cmd_check()
     elif cmd == "lint":
         cmd_lint()
+    elif cmd == "revert-hooks":
+        if len(rest) != 1:
+            die("usage: claude-settings revert-hooks <regex>", 2)
+        cmd_revert_hooks(rest[0])
     else:
         die(f"unknown command {cmd!r}; see --help", 2)
 

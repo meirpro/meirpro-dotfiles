@@ -1,0 +1,166 @@
+#!/bin/bash
+#
+# deferred-check: report what a slow check found LAST time, then start the
+# next run of it in the background. The hook costs milliseconds and never
+# blocks.
+#
+#   deferred-check NAME [--every SEC] [--stale SEC] -- COMMAND [ARGS...]
+#
+# WHY (2026-11-05, Meir): "passive non blocker ... a generic hook for such
+# things, where it exits right after checking a log file from the previous
+# run, and then it does the current check and updates that file for the next
+# run." First user: the guard that undoes Vibe Island rewriting its own hooks
+# into ~/.claude/settings.json.
+#
+# Claude Code's own `async: true` hooks do not fit. Their output goes to Claude
+# only ("Unlike a synchronous hook's systemMessage, neither field is shown to
+# you"), and every firing starts another process with no throttle. So this hook
+# is synchronous, and fast:
+#   1. read the result the last background run left in the state dir;
+#   2. if it says something this session has not been told yet, print ONE
+#      JSON object: `systemMessage` (shown to you) and, where the event takes
+#      it, `additionalContext` (shown to Claude);
+#   3. unless a run started in the last --every seconds or is still going,
+#      start the next one, detached, and exit.
+#
+# It ALWAYS exits 0. Exit 2 means "block": on UserPromptSubmit it throws the
+# prompt away, on Stop it sends Claude back to work. A report about the past
+# must not do either. Any other exit code shows only a "hook error" line.
+#
+# The check's exit code decides what is said:
+#   0      fine; nothing is said.
+#   3      it found something and HANDLED it (an event, e.g. "reverted"). Said
+#          once in every session that fires within 24 h, even after later
+#          runs come back clean.
+#   other  a problem that stands. Said once per session per distinct text,
+#          and only while the latest run still reports it.
+# Its stdout and stderr together are the words (first 1,500 characters).
+#
+# State: ${DEFERRED_CHECK_DIR:-~/.claude/state/deferred}/NAME/
+#   started            when the latest run began (the throttle reads it)
+#   last.exit / .out / .key / .json / .finished    the latest finished run
+#   event.json / event.at                          the latest exit-3 run
+#   lock/pid           the run in progress
+#   seen/SESSION.KEY   what each session has already been told
+#   log                one line per run
+#
+# Test: deferred-check.test.sh (beside this file).
+
+# ── background half: run the check, record the result ─────────────────────
+if [ "${1:-}" = "--run" ]; then
+  dir=$2
+  name=$3
+  shift 3
+  [ "${1:-}" = "--" ] && shift
+  PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+  began=$(date +%s)
+  out=$("$@" 2>&1)
+  code=$?
+  ended=$(date +%s)
+  out=${out:0:1500}
+  [ -n "$out" ] || out="(no output, exit $code)"
+  json=$(printf '%s: %s' "$name" "$out" | jq -Rs . 2>/dev/null) ||
+    json="\"$name: exit $code (jq is missing, so the words could not be passed on)\""
+  key=$(printf '%s' "$out" | cksum | cut -d' ' -f1)
+  # Write the words before the exit code: a reader keys on last.exit.
+  put() { printf '%s\n' "$2" >"$dir/$1.tmp" && mv -f "$dir/$1.tmp" "$dir/$1"; }
+  put last.out "$out"
+  put last.json "$json"
+  put last.key "$key"
+  put last.finished "$ended"
+  put last.exit "$code"
+  if [ "$code" -eq 3 ]; then
+    put event.json "$json"
+    put event.at "$ended"
+  fi
+  printf '%s exit=%s %ss %s\n' "$(date -r "$ended" '+%F %T')" "$code" "$((ended - began))" \
+    "$(printf '%s' "$out" | head -1 | cut -c1-160)" >>"$dir/log"
+  if [ "$(wc -l <"$dir/log")" -gt 500 ]; then
+    tail -250 "$dir/log" >"$dir/log.tmp" && mv -f "$dir/log.tmp" "$dir/log"
+  fi
+  find "$dir/seen" -type f -mtime +7 -delete 2>/dev/null
+  rm -rf "$dir/lock"
+  exit 0
+fi
+
+# ── hook half: say what the last run found, start the next ────────────────
+name=${1:-}
+[ -n "$name" ] || exit 0
+shift
+every=60
+stale=600
+while [ $# -gt 0 ]; do
+  case $1 in
+    --every) every=$2; shift 2 ;;
+    --stale) stale=$2; shift 2 ;;
+    --) shift; break ;;
+    *) shift ;;
+  esac
+done
+[ $# -gt 0 ] || exit 0
+
+dir=${DEFERRED_CHECK_DIR:-$HOME/.claude/state/deferred}/$name
+mkdir -p "$dir/seen" 2>/dev/null || exit 0
+
+input=$(cat)
+sid=nosession
+event=""
+re='"session_id"[[:space:]]*:[[:space:]]*"([^"]+)"'
+[[ $input =~ $re ]] && sid=${BASH_REMATCH[1]//[^A-Za-z0-9_-]/_}
+re='"hook_event_name"[[:space:]]*:[[:space:]]*"([A-Za-z]+)"'
+[[ $input =~ $re ]] && event=${BASH_REMATCH[1]}
+now=$(date +%s)
+
+say=""
+key=""
+at=0
+code=0
+started=0
+# 2>/dev/null BEFORE the <: redirections apply left to right, so a missing
+# file's error would otherwise print before stderr is silenced.
+read -r at 2>/dev/null <"$dir/event.at"
+read -r code 2>/dev/null <"$dir/last.exit"
+read -r started 2>/dev/null <"$dir/started"
+if [ "${at:-0}" -gt 0 ] && [ $((now - at)) -lt 86400 ] && [ ! -e "$dir/seen/$sid.e$at" ]; then
+  read -r say <"$dir/event.json"
+  key=e$at
+elif [ "${code:-0}" != 0 ] && [ "${code:-0}" != 3 ]; then
+  read -r k 2>/dev/null <"$dir/last.key"
+  if [ ! -e "$dir/seen/$sid.p$k" ]; then
+    read -r say <"$dir/last.json"
+    key=p$k
+  fi
+fi
+pid=""
+[ -d "$dir/lock" ] && read -r pid 2>/dev/null <"$dir/lock/pid"
+if [ -z "$say" ] && [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null &&
+  [ $((now - started)) -gt "$stale" ] && [ ! -e "$dir/seen/$sid.s$started" ]; then
+  say="\"$name: the check started at $(date -r "$started" '+%H:%M') is still running ($(((now - started) / 60)) min). Its process is $pid.\""
+  key=s$started
+fi
+
+if [ -n "$say" ]; then
+  case $event in
+    SessionStart | UserPromptSubmit | PostToolUse)
+      printf '{"systemMessage":%s,"hookSpecificOutput":{"hookEventName":"%s","additionalContext":%s}}\n' \
+        "$say" "$event" "$say"
+      ;;
+    *)
+      printf '{"systemMessage":%s}\n' "$say"
+      ;;
+  esac
+  : >"$dir/seen/$sid.$key"
+fi
+
+if [ $((now - ${started:-0})) -ge "$every" ]; then
+  if [ -d "$dir/lock" ] && { [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; } &&
+    [ $((now - ${started:-0})) -gt 5 ]; then
+    rm -rf "$dir/lock" # its run died without cleaning up
+  fi
+  if mkdir "$dir/lock" 2>/dev/null; then
+    printf '%s\n' "$now" >"$dir/started"
+    nohup "$0" --run "$dir" "$name" -- "$@" </dev/null >/dev/null 2>&1 &
+    printf '%s\n' "$!" >"$dir/lock/pid"
+  fi
+fi
+exit 0

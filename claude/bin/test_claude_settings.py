@@ -270,5 +270,103 @@ class MergedKeys(unittest.TestCase):
         self.assertEqual(e.read(e.public)["hooks"], {"Stop": [G_PUB]})
 
 
+# What Vibe Island's own entries look like: the gated one we build, and the
+# ungated one the app writes (its "Repair hooks" button, a reinstall); that
+# command is copied from the pre-gate settings backup of 2026-09-29.
+# The pattern is written `[-]` so it cannot match the guard's own command
+# line, which carries the pattern as an argument.
+VI = "vibe-island[-]bridge"
+GATED = {
+    "hooks": [
+        {
+            "type": "command",
+            "command": "/bin/sh -c '[ -S \"$HOME/.vibe-island/run/vibe-island.sock\" ] || exit 0; "
+            "\"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude'",
+        }
+    ]
+}
+UNGATED = {
+    "hooks": [
+        {
+            "type": "command",
+            "command": "/bin/sh -c '[ -x \"$HOME/.vibe-island/bin/vibe-island-bridge\" ] && "
+            "\"$HOME/.vibe-island/bin/vibe-island-bridge\" --source claude; exit 0'",
+        }
+    ]
+}
+G_OTHER = {"hooks": [{"type": "command", "command": "bash ~/.claude/hooks/other.sh"}]}
+G_GUARD = {
+    "hooks": [
+        {
+            "type": "command",
+            "command": f"~/.claude/hooks/deferred-check settings-guard -- claude-settings revert-hooks '{VI}'",
+        }
+    ]
+}
+
+
+class RevertHooks(unittest.TestCase):
+    def built(self) -> Env:
+        e = Env({**PUB, "hooks": {"Stop": [G_PUB]}}, {**PRIV, "hooks": {"Stop": [GATED]}})
+        self.assertEqual(e.run("build").returncode, 0)
+        return e
+
+    def edit_live(self, e: Env, change) -> None:
+        live = e.read(e.live)
+        change(live)
+        e.live.write_text(json.dumps(live))
+
+    def test_in_sync_says_nothing(self):
+        e = self.built()
+        r = e.run("revert-hooks", VI)
+        self.assertEqual((r.returncode, r.stdout), (0, ""))
+
+    def test_an_added_ungated_entry_is_reverted(self):
+        e = self.built()
+        self.edit_live(e, lambda d: d["hooks"].setdefault("UserPromptSubmit", []).append(UNGATED))
+        r = e.run("revert-hooks", VI)
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertIn("1 added", r.stdout)
+        self.assertEqual(e.read(e.live), e.read(e.snap))
+
+    def test_gated_replaced_by_ungated_is_reverted(self):
+        e = self.built()
+        self.edit_live(e, lambda d: d["hooks"].update({"Stop": [G_PUB, UNGATED]}))
+        r = e.run("revert-hooks", VI)
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertIn("1 added, 1 removed", r.stdout)
+        self.assertEqual(e.read(e.live), e.read(e.snap))
+
+    def test_any_other_edit_leaves_the_file_alone(self):
+        e = self.built()
+
+        def both(d):
+            d["hooks"]["Stop"].append(UNGATED)
+            d["permissions"]["allow"].append("Bash(ls)")
+
+        self.edit_live(e, both)
+        edited = e.read(e.live)
+        r = e.run("revert-hooks", VI)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("permissions", r.stdout)
+        self.assertIn("changed too", r.stdout)
+        self.assertEqual(e.read(e.live), edited)
+
+    def test_an_edit_to_another_hook_is_not_reverted(self):
+        e = self.built()
+        self.edit_live(e, lambda d: d["hooks"]["Stop"].append(G_OTHER))
+        edited = e.read(e.live)
+        r = e.run("revert-hooks", VI)
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("changed too", r.stdout)
+        self.assertEqual(e.read(e.live), edited)
+
+    def test_the_guards_own_entry_does_not_match_its_pattern(self):
+        e = self.built()
+        self.edit_live(e, lambda d: d["hooks"]["Stop"].append(G_GUARD))
+        r = e.run("revert-hooks", VI)
+        self.assertEqual(r.returncode, 1, "an edit to the guard's own entry must not be reverted as Vibe Island's")
+
+
 if __name__ == "__main__":
     unittest.main()
