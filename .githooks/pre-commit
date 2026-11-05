@@ -22,3 +22,15 @@ fi
 if grep -q '^claude/bin/\(claude-settings\|test_claude_settings.py\)$' <<<"$staged"; then
   python3 "$root/claude/bin/test_claude_settings.py" -q
 fi
+
+# The hook suites (guard_truncation, guard_file_reads, deferred-check): run all
+# of them when any hook changes. deferred-check's end-to-end case calls
+# claude-settings, so a change there runs them too.
+if grep -q '^claude/hooks/\|^claude/bin/claude-settings$' <<<"$staged"; then
+  for t in "$root"/claude/hooks/*.test.sh; do
+    if ! out="$(bash "$t" 2>&1)"; then
+      printf 'pre-commit: %s failed\n%s\n' "${t#"$root"/}" "$(tail -20 <<<"$out")" >&2
+      exit 1
+    fi
+  done
+fi
