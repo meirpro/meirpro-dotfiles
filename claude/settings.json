@@ -15,8 +15,8 @@
     "aws-serverless@claude-plugins-official": false,
     "aws-startup-advisor@claude-plugins-official": false,
     "browser-use@claude-plugins-official": false,
-    "chrome-devtools-mcp@claude-plugins-official": true,
-    "claude-code-setup@claude-plugins-official": true,
+    "chrome-devtools-mcp@claude-plugins-official": false,
+    "claude-code-setup@claude-plugins-official": false,
     "claude-md-management@claude-plugins-official": true,
     "claude-security@claude-plugins-official": true,
     "cloudflare@claude-plugins-official": false,
@@ -37,7 +37,7 @@
     "playwright@claude-plugins-official": false,
     "resend@claude-plugins-official": false,
     "save-to-spotify@claude-plugins-official": false,
-    "security-guidance@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": false,
     "sentry-cli@claude-plugins-official": false,
     "sentry@claude-plugins-official": false,
     "session-report@claude-plugins-official": false,
@@ -56,6 +56,7 @@
     "google-cloud-storage@claude-plugins-official": false
   },
   "env": {
+    "CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS": "1",
     "CLAUDE_CODE_ENABLE_TELEMETRY": "0"
   },
   "extraKnownMarketplaces": {
@@ -90,15 +91,6 @@
         "hooks": [
           {
             "command": "bash ~/.claude/hooks/ts_lint.sh",
-            "type": "command"
-          }
-        ],
-        "matcher": "Write|Edit|MultiEdit"
-      },
-      {
-        "hooks": [
-          {
-            "command": "bash ~/.claude/hooks/ts_check.sh",
             "type": "command"
           }
         ],

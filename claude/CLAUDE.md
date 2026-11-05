@@ -1,7 +1,8 @@
 # Development Rules
 
 > Shared configuration from [meirpro-dotfiles](https://github.com/meirpro/meirpro-dotfiles).
-> Hooks check TypeScript, lint, and format on every file save.
+> Hooks lint and format on every file save. No hook type-checks: run
+> `npx tsc --noEmit` yourself (see Code Quality).
 >
 > Machine-specific facts (hosts, credential paths, installed tools, local
 > plumbing) do **not** belong here — this repo is public. They live in the
