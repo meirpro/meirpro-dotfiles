@@ -1,0 +1,11 @@
+{
+  "size": 1300,
+  "out": "/ABS/PATH/public/brand/cat-brand",
+  "widths": [750],
+  "items": [
+    { "file": "/ABS/PATH/renders/machine.png", "maxW": 760, "maxH": 930, "left": "center", "top": 20 },
+    { "file": "/ABS/PATH/out/paper-a5-1.png", "maxW": 400, "maxH": 400, "left": 40, "bottom": 40 },
+    { "file": "/ABS/PATH/out/paper-4x6-1.png", "maxW": 360, "maxH": 360, "left": 921, "top": 560 },
+    { "file": "/ABS/PATH/out/pens-10-1.png", "maxW": 330, "maxH": 330, "left": 530, "bottom": 20 }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "model": "gpt-image-2.5-sunburst",
+  "size": "1024x1024",
+  "quality": "high",
+  "n": 2,
+  "base": "Studio product photograph for an online store, photorealistic, three-quarter view from slightly above, soft even studio lighting, crisp clean edges, a soft contact shadow directly under the product, nothing else in the frame.",
+  "jobs": [
+    {
+      "slug": "paper-a5",
+      "refs": ["/ABS/PATH/brand/card-a5.png", "/ABS/PATH/brand/logo-mark.png", "/ABS/PATH/brand/wordmark-ink.png"],
+      "prompt": "One retail box of BRAND drawing paper. A sturdy white cardboard box, lid removed and leaning upright behind it. The box is deeper than it is wide, so the thick, neat stack of A5 cards inside is seen in PORTRAIT orientation (the cards are taller than wide, their long side running away from the viewer). The top card is exactly the card in image 1, upright in portrait. The front of the box shows the mark from image 2 and the wordmark from image 3 in dark ink, a thin rainbow stripe, and the text \"A5 DRAWING PAPER\" and \"2,000 SHEETS\"."
+    },
+    {
+      "slug": "pens-10",
+      "refs": ["/ABS/PATH/brand/logo-mark.png", "/ABS/PATH/brand/wordmark-ink.png"],
+      "prompt": "A pack of 10 black fine-line drawing pens. A slim white retail box, lid open, holding EXACTLY TEN identical black fineliner pens standing side by side in a single row (count them: 10, not 9, not 11, not 12): plain matte black barrels and caps with no brand names or text on the pens. No loose pens outside the box. The box front shows the mark from image 1 and the wordmark from image 2 in dark ink, a thin rainbow stripe, and the text \"DRAWING PENS\" and \"10 PACK\"."
+    }
+  ]
+}
