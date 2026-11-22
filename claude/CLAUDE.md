@@ -165,6 +165,18 @@ hands you — `gh`, `git log`, CI APIs and Docker logs all default to it.
 for its users is a product decision that belongs to that project, and is
 usually the viewer's own local zone. Don't apply this rule to UI strings.
 
+## Many visual judgment calls → a local vote page
+
+When I have to judge more than about 10 images or options, build a local HTML
+page instead of asking in chat. **Build the voting into the images themselves,
+and keep it intuitive**: click the photo you want, and the page shows the
+choice on the image (a border, a badge, the other one dimmed). Don't put a row
+of buttons under each item. One click per item, with keyboard shortcuts as a
+bonus. End with a single "Copy my votes" button whose text maps straight to
+config. Keep the page local when the media is private. Stated by the user
+2026-11-22, after a duplicate-photo review whose button rows worked but were
+more clicking than needed.
+
 ## Time Estimates — always give both
 
 Whenever you quote a time estimate, give **both** numbers:
