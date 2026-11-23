@@ -257,6 +257,7 @@
     "sandbox-next": "name-only",
     "sandbox-sdk": "off",
     "sandbox-stable": "name-only",
+    "suno-personal-songwriting": "name-only",
     "transcribe-audio": "name-only",
     "turnstile-spin": "off",
     "web-perf": "off",
