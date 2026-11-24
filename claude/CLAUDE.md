@@ -165,6 +165,17 @@ hands you — `gh`, `git log`, CI APIs and Docker logs all default to it.
 for its users is a product decision that belongs to that project, and is
 usually the viewer's own local zone. Don't apply this rule to UI strings.
 
+## Text I'll paste: one line per point, no hard wraps
+
+Anything written for me to paste somewhere else (a ChatGPT prompt, a chat
+box, a form, an email, a message, anything you put on my clipboard) goes one
+line per paragraph or bullet. Never break lines at a character limit: the
+breaks travel with the paste and chop the text up wherever it lands. Stated by
+the user 2026-11-24, after a 500-word ChatGPT brief came out wrapped at ~118
+characters ("why did you add line breaks at char line limits?"). Wrapping is a
+code-file habit; keep it to files whose own convention asks for it (source
+code, a repo's markdown, like this file).
+
 ## Many visual judgment calls → a local vote page
 
 When I have to judge more than about 10 images or options, build a local HTML
